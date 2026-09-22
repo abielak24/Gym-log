@@ -199,7 +199,7 @@ export function renderExercise(root: HTMLElement, key: string): void {
   const summary = document.createElement('p');
   summary.className = 'exercise-summary';
   summary.textContent = best
-    ? `${entries.length} session${entries.length === 1 ? '' : 's'} · heaviest ${best.weight}x${best.reps} on ${friendlyDate(best.date)}`
+    ? `${entries.length} session${entries.length === 1 ? '' : 's'} · heaviest ${best.weight}x${best.reps}, ${friendlyDate(best.date)}`
     : `${entries.length} session${entries.length === 1 ? '' : 's'}`;
   root.append(summary);
 

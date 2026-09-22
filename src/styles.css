@@ -506,7 +506,6 @@ body {
 }
 
 .grid-corner { position: sticky; left: 0; z-index: 4; padding-left: 12px; }
-.grid-date-today { color: var(--accent); }
 
 .grid-cell {
   margin: 0;
@@ -612,3 +611,124 @@ body {
 
 .btn-icon { width: 40px; padding: 8px 0; text-align: center; font-size: 16px; }
 .btn-icon:disabled { opacity: 0.3; }
+
+/* Calendar ---------------------------------------------------------------- */
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+
+.cal-head h1 { margin: 0; font-size: 20px; text-align: center; }
+.cal-head .split-when { text-align: center; }
+
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.cal-weekday {
+  padding: 4px 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.cal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 62px;
+  padding: 5px 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink-dim);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-number { font-size: 12px; font-weight: 600; }
+
+.cal-outside { opacity: 0.35; }
+.cal-today { border-color: var(--accent); }
+.cal-today .cal-number { color: var(--accent); }
+
+.cal-trained { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--ink); }
+
+.cal-split {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cal-day:disabled { opacity: 0.25; cursor: default; }
+
+.cal-panel {
+  margin: 18px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.cal-panel h2 { margin: 0 0 10px; font-size: 15px; }
+.cal-panel-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Dragging an exercise up or down its split -------------------------------- */
+
+.grip {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: grab;
+  /* Without this the browser scrolls the page instead of moving the row. */
+  touch-action: none;
+}
+
+.grip:focus-visible { outline: 2px solid var(--accent); color: var(--ink); }
+
+.edit-list li.dragging {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 8px;
+  cursor: grabbing;
+}
+
+.edit-list li.dragging .grip { cursor: grabbing; color: var(--accent); }
+
+/* Opening a past session for editing ----------------------------------------- */
+
+.grid-date {
+  border: 0;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+
+.grid-date-open { color: var(--accent); }
+
+/* A cell holding something the parser could not read. */
+.grid-cell-unreadable {
+  box-shadow: inset 2px 0 0 var(--bad);
+}
+
+.split-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }

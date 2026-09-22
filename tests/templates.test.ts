@@ -114,14 +114,14 @@ describe('the grid', () => {
   it('puts each session’s sets in its own cell', () => {
     const grid = buildGrid(template, sessions);
     const pullUps = grid.rows.find((r) => r.name === 'Pull Ups')!;
-    expect(pullUps.cells).toEqual([['8', '8'], ['9', '9'], ['10', '10x8']]);
+    expect(pullUps.cells.map((c) => c.lines)).toEqual([['8', '8'], ['9', '9'], ['10', '10x8']]);
   });
 
   it('leaves a cell empty where the exercise was skipped', () => {
     const withGap = [...sessions, page('2026-09-22', 'Back 9/22\nPull Ups\n11')];
     const grid = buildGrid(buildTemplates(withGap)[0], withGap);
     const curls = grid.rows.find((r) => r.name === 'Curls')!;
-    expect(curls.cells[3]).toEqual([]);
+    expect(curls.cells[3].lines).toEqual([]);
   });
 
   it('marks the column being written today', () => {
@@ -162,5 +162,26 @@ describe('an exercise added during today’s session', () => {
   it('does not show a stray row on a session that is not being edited', () => {
     const grid = buildGrid(template, [previous, today]);
     expect(grid.rows.map((r) => r.name)).toEqual(['Pull Ups']);
+  });
+});
+
+describe('what a cell shows', () => {
+  const session = page('2026-09-22', 'Back 9/22\nPull Ups\n8\n// felt easy\n9x\n10');
+  const template = buildTemplates([session])[0];
+
+  it('shows every line under the exercise, in the order written', () => {
+    const grid = buildGrid(template, [session]);
+    expect(grid.rows[0].cells[0].lines).toEqual(['8', '// felt easy', '9x', '10']);
+  });
+
+  it('says when something in it is not readable as a set', () => {
+    const grid = buildGrid(template, [session]);
+    expect(grid.rows[0].cells[0].unreadable).toBe(true);
+  });
+
+  it('is quiet when everything parsed', () => {
+    const clean = page('2026-09-22', 'Back 9/22\nPull Ups\n8\n10');
+    const grid = buildGrid(buildTemplates([clean])[0], [clean]);
+    expect(grid.rows[0].cells[0].unreadable).toBe(false);
   });
 });

@@ -29,7 +29,9 @@ app failing to open offline.
   the export. Plain TypeScript, **no browser imports**. This is the part that
   would move into a native app unchanged, so keep DOM code out of it.
 - `src/app/` — the only code that touches the DOM. `grid-view` is the main
-  screen, `home-view` the splits and key lifts, `editor` the text page.
+  screen, `home-view` the splits and key lifts, `calendar-view` the month,
+  `editor` the text page, `sortable` the drag-to-reorder helper, `panels`
+  the shared backup and banner pieces.
 - `scripts/` — icon generation and the browser smoke test.
 
 ## One source of truth
@@ -61,8 +63,16 @@ page cannot express — `overrides` (a renamed or reordered split) and
 - **Splits are derived, not configured.** An exercise written into today's
   page joins that split silently; one that stops being done falls out after
   `RECENT_WINDOW` sessions. Do not add a setup step for this.
-- **Only today's column is editable.** Past sessions are read-only in the
-  grid; to change one, open its page from the Log.
+- **Any column can be opened for editing**, not just today's, by tapping its
+  date. A workout logged in a hurry is rarely complete, and finishing it
+  later must not mean retyping it.
+- **Two tabs, Home and Calendar.** There is no log tab; the calendar is the
+  date axis and Home carries search, backup and the samples banner.
+- **A grid cell is the exercise's whole body** — sets, notes and unreadable
+  lines alike — and `writeCell` replaces that body whole. Showing only the
+  lines that parsed hid them from the one person able to fix them, and the
+  write-back then re-added them on every save, duplicating them without
+  bound. `tests/edit.test.ts` pins this.
 - **lb only.** No unit conversion. Numbers are whatever was typed.
 
 ## Constraints that will bite you
@@ -84,12 +94,12 @@ page cannot express — `overrides` (a renamed or reordered split) and
   parked the date header permanently on top of the first row. Only the
   horizontal stickiness of the exercise column is real.
 - **Never re-render a screen that owns focus.** The store's subscriber
-  redraws only the Log. The grid's cells and the page editor save on a
-  debounce, and rebuilding them mid-keystroke throws away the cursor.
-- **`writeCell` keeps what it did not write.** Notes and unreadable lines
-  under an exercise survive a cell edit (they collect below the sets). Tests
-  in `tests/edit.test.ts` pin this down — it is somebody's log, not ours to
-  tidy.
+  redraws only Home. The grid's cells, the page editor and a drag in
+  progress save on a debounce, and rebuilding them mid-gesture throws away
+  the cursor or the drag.
+- **Drag uses pointer events, not HTML5 drag-and-drop**, which does not
+  exist on iOS. The grip needs `touch-action: none` or the page scrolls
+  instead of the row moving.
 - **Storage is per-origin `localStorage`.** Moving the app to a different
   host strands the log; export/import is the only migration path. This is
   also why the backup nudge exists.

@@ -6,10 +6,11 @@
 
 import './styles.css';
 import * as store from './app/store';
-import { renderExercise, renderLog, renderPage, teardown } from './app/views';
+import { renderExercise, renderPage, teardown } from './app/views';
 import { renderHome, renderSummary } from './app/home-view';
 import { renderTemplate } from './app/grid-view';
 import { renderEditSplit } from './app/edit-split';
+import { renderCalendar } from './app/calendar-view';
 
 const view = document.getElementById('view') as HTMLElement;
 const tabs = [...document.querySelectorAll<HTMLAnchorElement>('.tab')];
@@ -22,12 +23,15 @@ function route(): void {
   window.scrollTo(0, 0);
 
   switch (screen) {
-    case 'log':
-      renderLog(view);
+    case 'cal':
+      renderCalendar(view, rest);
       break;
-    case 't':
-      renderTemplate(view, decodeURIComponent(rest));
+    case 't': {
+      // #/t/<split> opens today; #/t/<split>/<session> opens that day.
+      const [key, session] = rest.split('/');
+      renderTemplate(view, decodeURIComponent(key), session ? decodeURIComponent(session) : undefined);
       break;
+    }
     case 'edit':
       renderEditSplit(view, decodeURIComponent(rest));
       break;
@@ -45,7 +49,7 @@ function route(): void {
   }
 
   // Everything that hangs off the home screen keeps the Home tab lit.
-  const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', ''];
+  const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', 'page', ''];
   for (const tab of tabs) {
     const target = tab.getAttribute('href')?.replace(/^#\/?/, '') || 'home';
     const on = target === screen || (target === 'home' && belongsToHome.includes(screen));
@@ -93,9 +97,9 @@ function registerServiceWorker(): void {
 store.load();
 store.pruneEmpty();
 store.subscribe(() => {
-  // Screens that own an input - the page editor, the grid's cells - must not
-  // be rebuilt underneath the cursor. The rest can redraw freely.
-  if (location.hash.startsWith('#/log')) route();
+  // Screens that own an input - the page editor, the grid's cells, the
+  // split editor mid-drag - must not be rebuilt underneath the finger.
+  if (location.hash.startsWith('#/home') || location.hash === '#/' || location.hash === '') route();
 });
 
 window.addEventListener('hashchange', route);

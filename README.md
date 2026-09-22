@@ -22,7 +22,8 @@ Lat Pull Down   170x6    170x6    180x5
 
 ## How it's organised
 
-**Home** lists your splits and your key lifts.
+Two tabs. **Home** is your splits and your key lifts; **Calendar** is the
+month, with the workouts written onto it.
 
 **Splits** are not set up — they're read out of what you've written. Every
 page title you've used is a split, and its exercises are whatever the recent
@@ -30,8 +31,9 @@ sessions under that title contain. Add an exercise mid-workout and it's part
 of that split from then on; stop doing one and it drops off after a few
 sessions. That's how a split actually drifts, and it needs no bookkeeping.
 
-When you want to change one deliberately, **Edit split** renames it, reorders
-the exercises, or drops one. None of that touches your logged pages.
+When you want to change one deliberately, **Edit split** renames it, drops an
+exercise, or reorders them — drag the handles, and the grid follows. None of
+that touches your logged pages.
 
 **Key lifts** are the ones you star. They gather on the home screen with the
 last time you did them and your best set, whichever split they came from —
@@ -39,10 +41,19 @@ so when you reshuffle your training, the lifts you actually care about don't
 quietly vanish along with the split that used to contain them. A starred lift
 you haven't touched in two weeks says so.
 
+**The calendar** fills itself in: a day is marked because a page was written
+for it, not because anything was scheduled. Tap a day you trained to open it
+for editing; tap an empty one to add a workout you forgot to write down.
+
+**Finishing a session later.** A workout logged in a hurry is rarely
+complete. Any column's date can be tapped to open that session for editing,
+so a half-filled Monday can be finished on Wednesday without retyping it.
+Cells you never fill just stay blank — nothing is ever required.
+
 **The page** is still there behind the grid. Every cell you type writes
-straight into a plain-text page for that day, and you can open it from the
-**Log** tab and edit it as text whenever the grid is the wrong shape for what
-happened.
+straight into a plain-text page for that day, and **As text** on any open
+session shows it as exactly that, for whenever the grid is the wrong shape
+for what happened.
 
 ## The format
 
@@ -77,13 +88,14 @@ wave under it and stays exactly as you typed it — nothing is ever silently
 reinterpreted into a number you didn't mean. If the line was deliberate,
 **It's a note** prefixes it with `//` and it stops asking.
 
-**It keeps every session of every lift.** Tap any exercise name.
+**It keeps every session of every lift.** Tap any exercise name, or search
+from Home.
 
 ## Backing up
 
 Your log lives in this phone's browser storage and nowhere else. Losing the
-phone loses the log, so the Log screen has **Save as text**, which hands iOS a
-plain `.txt` file: *Share → Save to Files → iCloud Drive*. The file is the
+phone loses the log, so the bottom of Home has **Save as text**, which hands
+iOS a plain `.txt` file: *Share → Save to Files → iCloud Drive*. The file is the
 notebook, in the format above, readable in any text editor forever. **Save as
 JSON** is the same data in a form that restores byte-exactly, and **Restore**
 reads either back.
@@ -135,4 +147,7 @@ reason to look at your phone for longer between sets.
   means it also can't total those sets correctly in volume.
 - **One split per page title.** Two splits with the same name are one split.
   Rename one if you want them apart.
+- **Calendar squares abbreviate.** `Back/Bis/Shoulders` shows as `B/B/S`;
+  the full name is in the tooltip, when you tap the day, and for a screen
+  reader.
 - **lb only.** Nothing converts units; the numbers are whatever you typed.

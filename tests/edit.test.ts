@@ -59,20 +59,36 @@ describe('writing one cell', () => {
     expect(writeCell(PAGE, 'Squat', [])).toBe(PAGE);
   });
 
-  it('keeps a note written under the exercise', () => {
+  it('writes the cell\u2019s whole body, notes and all', () => {
     const withNote = `Chest 9/22\nBench\n135x8\n// left shoulder tight`;
-    const next = writeCell(withNote, 'Bench', ['135x8', '145x6']);
+    const next = writeCell(withNote, 'Bench', ['135x8', '145x6', '// left shoulder tight']);
 
     expect(next).toContain('// left shoulder tight');
     expect(parsePage(next).exercises[0].sets).toHaveLength(2);
   });
 
-  it('keeps a line the parser could not read', () => {
-    const withJunk = `Chest 9/22\nBench\n135x8\n135x`;
-    const next = writeCell(withJunk, 'Bench', ['145x6']);
+  it('does not duplicate an unreadable line on every save', () => {
+    // The cell shows the whole block, so what comes back replaces it whole.
+    // Rescuing lines the cell also contains is what duplicated them.
+    let text = `Chest 9/22\nBench\n135x8\n135x`;
+    for (let i = 0; i < 5; i++) text = writeCell(text, 'Bench', ['135x8', '135x']);
 
-    expect(next).toContain('135x');
-    expect(parsePage(next).flagged).toHaveLength(1);
+    expect(text.split('\n').filter((line) => line.trim() === '135x')).toHaveLength(1);
+    expect(parsePage(text).flagged).toHaveLength(1);
+  });
+
+  it('lets an unreadable line be corrected from the cell', () => {
+    const withJunk = `Chest 9/22\nBench\n135x8\n135x`;
+    const next = writeCell(withJunk, 'Bench', ['135x8', '135x6']);
+
+    expect(next).not.toContain('135x\n');
+    expect(parsePage(next).flagged).toEqual([]);
+    expect(parsePage(next).exercises[0].sets).toHaveLength(2);
+  });
+
+  it('lets a note be deleted from the cell', () => {
+    const withNote = `Chest 9/22\nBench\n135x8\n// left shoulder tight`;
+    expect(writeCell(withNote, 'Bench', ['135x8'])).not.toContain('shoulder');
   });
 
   it('writes superset lines whole', () => {

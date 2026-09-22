@@ -8,6 +8,7 @@
  */
 
 import type { Template } from '../core/types';
+import { makeSortable } from './sortable';
 import * as store from './store';
 
 export function renderEditSplit(root: HTMLElement, key: string): void {
@@ -27,7 +28,12 @@ export function renderEditSplit(root: HTMLElement, key: string): void {
   heading.textContent = 'Edit split';
   root.append(heading);
 
+  const hint = document.createElement('p');
+  hint.className = 'note';
+  hint.textContent = 'Drag the handles to reorder. The order is what the grid shows.';
+
   root.append(renameField(template, root));
+  root.append(hint);
   root.append(exerciseList(template, root));
 
   const done = document.createElement('a');
@@ -65,40 +71,36 @@ function renameField(template: Template, root: HTMLElement): HTMLElement {
 }
 
 function exerciseList(template: Template, root: HTMLElement): HTMLElement {
-  const order = template.exercises.map((e) => e.key);
-
   const list = document.createElement('ul');
   list.className = 'edit-list';
 
-  template.exercises.forEach((exercise, index) => {
+  for (const exercise of template.exercises) {
     const row = document.createElement('li');
+    row.dataset.key = exercise.key;
+
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.className = 'grip';
+    grip.textContent = '\u2261';
+    grip.setAttribute('aria-label', `Reorder ${exercise.name}. Use the arrow keys, or drag.`);
 
     const name = document.createElement('span');
     name.className = 'edit-name';
     name.textContent = exercise.name;
 
-    const up = iconButton('↑', `Move ${exercise.name} up`, index === 0, () => {
-      const next = [...order];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      store.saveOverride(template.key, { order: next });
-      renderEditSplit(root, template.key);
-    });
-
-    const down = iconButton('↓', `Move ${exercise.name} down`, index === order.length - 1, () => {
-      const next = [...order];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      store.saveOverride(template.key, { order: next });
-      renderEditSplit(root, template.key);
-    });
-
-    const remove = iconButton('×', `Remove ${exercise.name} from this split`, false, () => {
+    const remove = iconButton('\u00d7', `Remove ${exercise.name} from this split`, () => {
       const hidden = store.overrideFor(template.key)?.hidden ?? [];
       store.saveOverride(template.key, { hidden: [...hidden, exercise.key] });
       renderEditSplit(root, template.key);
     });
 
-    row.append(name, up, down, remove);
+    row.append(grip, name, remove);
     list.append(row);
+  }
+
+  makeSortable(list, {
+    // Saving on every drop means the order is never waiting on a Done button.
+    onReorder: (order) => store.saveOverride(template.key, { order }),
   });
 
   const hidden = store.overrideFor(template.key)?.hidden ?? [];
@@ -125,13 +127,12 @@ function exerciseList(template: Template, root: HTMLElement): HTMLElement {
   return list;
 }
 
-function iconButton(glyph: string, label: string, disabled: boolean, onClick: () => void): HTMLButtonElement {
+function iconButton(glyph: string, label: string, onClick: () => void): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'btn btn-ghost btn-icon';
   button.textContent = glyph;
   button.setAttribute('aria-label', label);
-  button.disabled = disabled;
   button.addEventListener('click', onClick);
   return button;
 }

@@ -115,9 +115,11 @@ await page.waitForTimeout(600);
 await page.screenshot({ path: join(SHOTS, '2-grid.png'), fullPage: true });
 
 // --- It went into the page, not into a side store ----------------------------
-await page.goto(`${url}#/log`);
-await page.waitForSelector('.log-list');
-await page.locator('.log-link').first().click();
+const todaySession = await page.evaluate(() => {
+  const raw = JSON.parse(localStorage.getItem('gym-notebook:v1'));
+  return raw.sessions.find((s) => s.text.includes('12x8')).id;
+});
+await page.goto(`${url}#/page/${encodeURIComponent(todaySession)}`);
 await page.waitForSelector('.page-text');
 
 const written = await page.locator('.page-text').inputValue();
@@ -159,6 +161,16 @@ check('starred lifts gather on the home screen', starred.length === 2, starred.j
 check('each shows when it was last done', (await page.locator('.summary-sets').first().textContent())?.length > 0);
 await page.screenshot({ path: join(SHOTS, '5-home-stars.png'), fullPage: true });
 
+// --- Finding a lift without going through its split ------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('input[type="search"]');
+await page.locator('input[type="search"]').fill('incline');
+await page.waitForTimeout(150);
+check('search on home finds a lift', (await page.locator('.name-link').first().textContent())?.includes('Incline'));
+await page.locator('.name-link').first().click();
+await page.waitForSelector('.history-list');
+check('and opens its history', (await page.locator('.exercise-name').textContent()) === 'Dumbbell Incline Press');
+
 // --- A brand new split -------------------------------------------------------
 await page.goto(`${url}#/home`);
 await page.waitForSelector('.split-list');
@@ -179,18 +191,36 @@ await page.waitForSelector('.split-list');
 check('the new split joins the others', (await page.locator('.split-name').allTextContents()).includes('Legs'));
 check('today\u2019s split is offered at the top', (await page.locator('.resume-name').count()) > 0);
 
-// --- Editing a split by hand ------------------------------------------------------
+// --- Editing a split by hand, by dragging -------------------------------------
 await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
 await page.waitForSelector('.edit-list');
 const before = await page.locator('.edit-name').allTextContents();
-await page.locator('.edit-list li').nth(1).locator('button[aria-label^="Move"]').first().click();
-await page.waitForTimeout(150);
+
+// Drag the second row above the first with a real pointer, as a finger would.
+const firstGrip = page.locator('.edit-list li').first().locator('.grip');
+const secondGrip = page.locator('.edit-list li').nth(1).locator('.grip');
+const from = await secondGrip.boundingBox();
+const to = await firstGrip.boundingBox();
+await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+await page.mouse.down();
+await page.mouse.move(to.x + to.width / 2, to.y - 4, { steps: 12 });
+await page.mouse.up();
+await page.waitForTimeout(200);
+
 const after = await page.locator('.edit-name').allTextContents();
-check('an exercise can be moved up the split', after[0] === before[1], `${before.join(',')} -> ${after.join(',')}`);
+check('dragging a row reorders the split', after[0] === before[1], `${before.join(',')} -> ${after.join(',')}`);
+
+await page.goto(`${url}${backHash}`);
+await page.waitForSelector('.grid');
+check('and the grid follows that order', (await page.locator('.grid-name').first().textContent()) === after[0]);
+
+await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
+await page.waitForSelector('.edit-list');
+check('the reorder survived a reload', (await page.locator('.edit-name').allTextContents())[0] === after[0]);
 
 await page.locator('.edit-list li').last().locator('button[aria-label^="Remove"]').click();
 await page.waitForTimeout(150);
-check('and removed from it', (await page.locator('.edit-name').count()) === before.length - 1);
+check('an exercise can be removed from the split', (await page.locator('.edit-name').count()) === before.length - 1);
 check('with a way to put it back', (await page.locator('.btn-chip').count()) === 1);
 await page.screenshot({ path: join(SHOTS, '6-edit.png'), fullPage: true });
 
@@ -198,26 +228,101 @@ await page.goto(`${url}#/exercise/curl`);
 await page.waitForSelector('.history-list');
 check('removing it from a split keeps its history', (await page.locator('.history-list li').count()) > 0);
 
-// --- Light mode ---------------------------------------------------------------------
+// --- The calendar -------------------------------------------------------------------
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+check('the month draws six weeks', (await page.locator('.cal-day').count()) === 42);
+const trained = await page.locator('.cal-trained').count();
+check('days trained are filled in from the pages', trained >= 3, `${trained} days`);
+check('and say which split it was', (await page.locator('.cal-split').first().textContent())?.length > 0);
+check('today is marked', (await page.locator('.cal-today').count()) === 1);
+check('days that have not happened are not tappable', (await page.locator('.cal-day:disabled').count()) > 0);
+await page.screenshot({ path: join(SHOTS, '7-calendar.png'), fullPage: true });
+
+// --- Finishing a session that was left half written ------------------------------------
+await page.locator('.cal-trained').first().click();
+await page.waitForSelector('.grid');
+check('tapping a past day opens that session for editing', (await page.locator('.split-when').textContent())?.startsWith('editing'));
+
+const openCells = await page.locator('.grid-cell-today').count();
+check('its column is the editable one', openCells > 0);
+const target = page.locator('.grid-cell-today').first();
+const existing = await target.inputValue();
+await target.click();
+await target.fill(`${existing}\n99x1`);
+await page.waitForTimeout(600);
+
+await page.reload();
+await page.waitForSelector('.grid');
+const saved = await page.locator('.grid-cell-today').first().inputValue();
+check('a set added to a past session is saved', saved.includes('99x1'), saved.replace(/\n/g, '|'));
+
+// --- A line the parser cannot read stays visible and stays single ----------------
+const messy = page.locator('.grid-cell-today').first();
+await messy.fill(`${existing}\n99x`);
+await page.waitForTimeout(600);
+check('an unreadable line is marked in the cell', (await page.locator('.grid-cell-unreadable').count()) > 0);
+
+for (let i = 0; i < 3; i++) {
+  await messy.fill(`${existing}\n99x`);
+  await page.waitForTimeout(500);
+  await page.reload();
+  await page.waitForSelector('.grid');
+}
+const occurrences = (await page.locator('.grid-cell-today').first().inputValue()).split('\n').filter((l) => l.trim() === '99x').length;
+check('and is not duplicated by saving again and again', occurrences === 1, `${occurrences} copies`);
+
+await page.locator('.grid-cell-today').first().fill(existing);
+await page.waitForTimeout(600);
+
+// --- Adding a workout you forgot to write down -------------------------------------------
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+const empty = page.locator('.cal-day:not(.cal-trained):not(:disabled):not(.cal-outside)').first();
+await empty.click();
+await page.waitForSelector('.cal-panel');
+check('an empty day offers the splits', (await page.locator('.cal-panel .btn-chip').count()) > 0);
+await page.locator('.cal-panel .btn-chip').first().click();
+await page.waitForSelector('.grid');
+check('and backfills a session on that day', (await page.locator('.split-when').textContent())?.startsWith('editing'));
+
+// --- Backup lives on home now ---------------------------------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.backup-box');
+check('backup moved to home with the log tab gone', (await page.locator('.backup-actions .btn').count()) === 3);
+await page.goto(`${url}${backHash}`);
+await page.waitForSelector('.grid');
+await page.locator('.split-actions a', { hasText: 'As text' }).click();
+await page.waitForSelector('.page-text');
+check('a session can still be opened as raw text', (await page.locator('.page-text').inputValue()).includes('Pull Ups'));
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.backup-box');
+check('there is no log tab any more', (await page.locator('.tab', { hasText: 'Log' }).count()) === 0);
+check('the tabs are Home and Calendar', (await page.locator('.tab').allTextContents()).join(',') === 'Home,Calendar');
+await page.screenshot({ path: join(SHOTS, '8-home.png'), fullPage: true });
+
+// --- Light mode -----------------------------------------------------------------------------
 const lightPage = await (await browser.newContext({
   viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'light',
 })).newPage();
-await lightPage.goto(`${url}#/home`);
-await lightPage.waitForSelector('.split-list');
-await lightPage.screenshot({ path: join(SHOTS, '7-light.png'), fullPage: true });
+await lightPage.goto(`${url}#/cal`);
+await lightPage.waitForSelector('.cal');
+await lightPage.screenshot({ path: join(SHOTS, '9-light.png'), fullPage: true });
 check('light mode renders', true);
 
-// --- With the network pulled out --------------------------------------------------------
+// --- With the network pulled out ----------------------------------------------------------------
 await page.goto(url);
 await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10000 })
   .catch(() => check('service worker takes control', false, 'timed out'));
 
 await context.setOffline(true);
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal', { timeout: 5000 }).catch(() => {});
+check('the app opens with no network at all', (await page.locator('.cal-trained').count()) > 0);
 await page.goto(`${url}#/home`);
 await page.waitForSelector('.split-list', { timeout: 5000 }).catch(() => {});
-check('the app opens with no network at all', (await page.locator('.split-name').count()) > 0);
 check('and everything written online is still there', (await page.locator('.summary-name').count()) === 2);
-await page.screenshot({ path: join(SHOTS, '8-offline.png'), fullPage: true });
+await page.screenshot({ path: join(SHOTS, '10-offline.png'), fullPage: true });
 await context.setOffline(false);
 
 await browser.close();

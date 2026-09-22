@@ -110,13 +110,14 @@ export function getTemplate(key: string): Template | undefined {
 }
 
 /**
- * Today's page for a split, started if it does not exist.
+ * A page for a split on a given day, started if it does not exist.
  *
  * The page title is what puts a session in a split, so writing the split's
- * name into the header is all the bookkeeping there is.
+ * name into the header is all the bookkeeping there is. The date is a
+ * parameter because a workout you forgot to log is still a workout.
  */
-export function startTemplateSession(name: string, today = new Date()): Session {
-  const date = isoToday(today);
+export function startTemplateSession(name: string, on = new Date()): Session {
+  const date = isoToday(on);
   const key = normalizeName(name);
 
   const existing = state.sessions.find((s) => s.date === date && normalizeName(parsePage(s.text).title) === key);
@@ -125,7 +126,7 @@ export function startTemplateSession(name: string, today = new Date()): Session 
   const created: Session = {
     id: newSessionId(date, state.sessions),
     date,
-    text: `${today.getMonth() + 1}/${today.getDate()} ${name}`,
+    text: `${on.getMonth() + 1}/${on.getDate()} ${name}`,
     updatedAt: Date.now(),
   };
   state = { ...state, sessions: [created, ...state.sessions] };
@@ -142,6 +143,12 @@ export function saveCell(sessionId: string, exercise: string, lines: string[]): 
   const text = writeCell(session.text, exercise, lines);
   if (text === session.text) return;
   saveText(sessionId, text, parsePage(text).date);
+}
+
+/** Parse an ISO date back into a local Date, for starting a session on it. */
+export function dateFromIso(date: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
 
 export function overrideFor(key: string): TemplateOverride | undefined {

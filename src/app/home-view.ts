@@ -7,19 +7,32 @@
  * lifts inside it can quietly disappear, and this is what notices.
  */
 
-import { heaviestSet, type HistoryEntry } from '../core/history';
+import { heaviestSet, suggestNames, type HistoryEntry } from '../core/history';
 import { isoToday } from '../core/serialize';
 import { parsePage } from '../core/parse';
 import { normalizeName } from '../core/normalize';
 import type { Template } from '../core/types';
 import { friendlyDate } from './format';
 import * as store from './store';
+import { backupNudge, backupPanel, samplesBanner } from './panels';
 
 /** A starred lift untouched for this long is worth pointing at. */
 const STALE_DAYS = 14;
 
 export function renderHome(root: HTMLElement): void {
   root.replaceChildren();
+
+  if (!store.isDurable()) {
+    root.append(warning('This browser will not let the app save. Anything written here disappears when it closes.'));
+  }
+
+  const nudge = backupNudge();
+  if (nudge) root.append(nudge);
+
+  const samples = samplesBanner();
+  if (samples) root.append(samples);
+
+  root.append(exerciseSearch());
 
   const today = isoToday();
   const inProgress = store.sessions().filter((s) => s.date === today);
@@ -46,6 +59,64 @@ export function renderHome(root: HTMLElement): void {
 
   root.append(sectionTitle('Key lifts'));
   root.append(summaryCard());
+
+  root.append(backupPanel());
+}
+
+/**
+ * Finding one lift without going through the split that contains it.
+ *
+ * This is what the log tab's search did, and it is the only part of it that
+ * the calendar does not cover.
+ */
+function exerciseSearch(): HTMLElement {
+  const wrap = document.createElement('div');
+
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.className = 'search';
+  input.placeholder = 'Find an exercise';
+  input.autocapitalize = 'none';
+  input.setAttribute('aria-label', 'Find an exercise');
+
+  const results = document.createElement('ul');
+  results.className = 'name-list';
+
+  input.addEventListener('input', () => {
+    results.replaceChildren();
+    const query = input.value.trim();
+    if (!query) return;
+
+    const history = store.getHistory();
+    const names = suggestNames(history, query, 8);
+
+    if (names.length === 0) {
+      results.append(note(`Nothing logged for “${query}” yet.`));
+      return;
+    }
+
+    for (const name of names) {
+      const row = document.createElement('li');
+      const link = document.createElement('a');
+      link.className = 'name-link chip-link';
+      link.href = `#/exercise/${encodeURIComponent(normalizeName(name))}`;
+      link.textContent = name;
+      row.append(link);
+      results.append(row);
+    }
+  });
+
+  wrap.append(input, results);
+  return wrap;
+}
+
+function warning(text: string): HTMLElement {
+  const element = document.createElement('div');
+  element.className = 'banner banner-warn';
+  const span = document.createElement('span');
+  span.textContent = text;
+  element.append(span);
+  return element;
 }
 
 function resumeCard(title: string): HTMLElement {

@@ -11,7 +11,12 @@ import { parsePage } from './parse';
 import { normalizeName } from './normalize';
 
 /**
- * Replace the set lines under `name` with `lines`.
+ * Replace everything under `name` with `lines`.
+ *
+ * The grid cell shows an exercise's whole body — sets, notes and unreadable
+ * lines — so this replaces the whole body. Keeping some lines back would
+ * re-add them alongside whatever the cell now says, which duplicated them on
+ * every save.
  *
  * An exercise the page does not have yet is appended with its heading. Empty
  * `lines` removes the block entirely, so clearing a cell clears the exercise
@@ -45,33 +50,14 @@ export function writeCell(text: string, name: string, lines: string[]): string {
   }
 
   const heading = all[block.headingLine];
-  const kept = keepUnreadableLines(page, block.headingLine, end, all);
 
   return tidy([
     ...before,
     heading,
     ...clean,
-    ...kept,
     ...(after.length ? [''] : []),
     ...dropLeadingBlanks(after),
   ]);
-}
-
-/**
- * Notes and unreadable lines under an exercise survive an edit to its sets.
- *
- * Someone wrote `// shoulder felt tight` under this heading on purpose, and
- * replacing the numbers above it is no reason to throw that away. They
- * collect below the sets rather than keeping their original position, which
- * is the one liberty taken here.
- */
-function keepUnreadableLines(page: ReturnType<typeof parsePage>, from: number, to: number, all: string[]): string[] {
-  const kept: string[] = [];
-  for (let i = from + 1; i < to; i++) {
-    const info = page.lines[i];
-    if (info && (info.kind === 'note' || info.kind === 'flagged')) kept.push(all[i]);
-  }
-  return kept;
 }
 
 function trimTrailingBlanks(lines: string[]): string[] {

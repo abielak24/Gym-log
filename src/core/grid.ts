@@ -20,11 +20,22 @@ export interface GridColumn {
   editable: boolean;
 }
 
+export interface GridCell {
+  /**
+   * Every line under the exercise heading, exactly as written — sets, notes
+   * and lines the parser could not read alike. A cell that showed only what
+   * parsed would hide the rest from the one person able to fix it, and the
+   * write-back would then duplicate those lines on every save.
+   */
+  lines: string[];
+  /** True when something in this cell is not readable as a set. */
+  unreadable: boolean;
+}
+
 export interface GridRow {
   key: string;
   name: string;
-  /** Set lines exactly as written, one array per column. */
-  cells: string[][];
+  cells: GridCell[];
 }
 
 export interface Grid {
@@ -73,11 +84,17 @@ export function buildGrid(
   const rows: GridRow[] = exercises.map((exercise) => ({
     key: exercise.key,
     name: exercise.name,
-    cells: pages.map((page) =>
-      page.exercises
-        .filter((block) => block.key === exercise.key)
-        .flatMap((block) => block.sets.map((set) => set.text.trim())),
-    ),
+    cells: pages.map((page) => {
+      const blocks = page.exercises.filter((block) => block.key === exercise.key);
+      const lines = blocks
+        .flatMap((block) => [...block.sets, ...block.notes, ...block.flagged])
+        .sort((a, b) => a.index - b.index);
+
+      return {
+        lines: lines.map((line) => line.text.trim()),
+        unreadable: lines.some((line) => line.kind === 'flagged'),
+      };
+    }),
   }));
 
   return { template, columns, rows };

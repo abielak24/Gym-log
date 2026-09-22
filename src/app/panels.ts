@@ -105,5 +105,54 @@ export function backupPanel(): HTMLElement {
   row.append(action('Restore', () => picker.click()), picker);
 
   box.append(row);
+  if (!store.isEmpty()) box.append(startFresh());
   return box;
+}
+
+/**
+ * Wiping the device, behind a second tap.
+ *
+ * A single button next to "Save as text" is too easy to hit by accident for
+ * something with no undo, so the first tap only asks, and stops asking on
+ * its own if it is ignored.
+ */
+function startFresh(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'danger-zone';
+
+  const render = (armed: boolean) => {
+    wrap.replaceChildren();
+
+    if (!armed) {
+      const button = action('Start fresh', () => render(true));
+      button.classList.add('btn-danger');
+      wrap.append(button);
+      return;
+    }
+
+    const warning = document.createElement('p');
+    warning.className = 'danger-note';
+    warning.textContent = 'This erases every page, split and tracked day on this phone. It cannot be undone.';
+
+    const erase = action('Erase everything', () => {
+      store.clearEverything();
+      toast('Everything cleared. This is a brand new log.');
+    });
+    erase.classList.add('btn-danger-on');
+
+    const cancel = action('Keep it', () => render(false));
+
+    const buttons = document.createElement('div');
+    buttons.className = 'backup-actions';
+    buttons.append(erase, cancel);
+
+    wrap.append(warning, buttons);
+    // Do not sit armed indefinitely if it was hit by mistake.
+    window.setTimeout(() => {
+      if (wrap.contains(erase)) render(false);
+    }, 8000);
+  };
+
+  render(false);
+  return wrap;
 }

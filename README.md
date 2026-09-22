@@ -144,6 +144,10 @@ Clear it in one tap from the banner at the top of Home, and load it again
 from the bottom of Home whenever you want another look. Loading it never
 touches a day you have really trained.
 
+To empty the app completely — pages, splits, stars and tracked days —
+**Start fresh** at the bottom of Home asks once and then erases everything on
+the device. There is no undo, so export first if any of it mattered.
+
 ## Putting it on your phone
 
 Open the site in Safari, then Share → **Add to Home Screen**. It gets its own

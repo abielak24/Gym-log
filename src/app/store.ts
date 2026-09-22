@@ -318,6 +318,23 @@ export function pruneEmpty(keepId?: string): void {
   persist();
 }
 
+/**
+ * Erase everything on this device: pages, splits, stars and tracked days.
+ *
+ * `samplesCleared` stays set so the sample history does not quietly
+ * reappear on the next open — starting fresh means starting empty, and the
+ * samples are one tap away for anyone who wants them back.
+ */
+export function clearEverything(): void {
+  state = { ...EMPTY, samplesCleared: true };
+  persist();
+  emit();
+}
+
+export function isEmpty(): boolean {
+  return state.sessions.length === 0 && Object.keys(state.daily).length === 0;
+}
+
 export function lastBackupAt(): number | null {
   return state.lastBackupAt;
 }

@@ -155,3 +155,8 @@ parse cleanly, show progression, and include a blank cell and a superset.
 
 Loading samples is additive — days that already hold something real are left
 alone — so nobody can lose a workout by tapping it out of curiosity.
+
+`clearEverything()` is the opposite and the only destructive action in the
+app: it wipes the device and leaves `samplesCleared` set, so a fresh start
+stays fresh. It sits behind a second tap that disarms itself after eight
+seconds, because there is no undo.

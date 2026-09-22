@@ -437,6 +437,46 @@ check('and everything written online is still there', (await page.locator('.summ
 await page.screenshot({ path: join(SHOTS, '10-offline.png'), fullPage: true });
 await context.setOffline(false);
 
+// --- Starting fresh -------------------------------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.danger-zone');
+check('erasing takes two taps, not one', (await page.locator('.danger-note').count()) === 0);
+
+await page.locator('.btn-danger').click();
+await page.waitForTimeout(150);
+check('the first tap explains what it does', (await page.locator('.danger-note').textContent())?.includes('cannot be undone'));
+
+await page.locator('.backup-actions .btn', { hasText: 'Keep it' }).click();
+await page.waitForTimeout(150);
+check('and can be backed out of', (await page.locator('.danger-note').count()) === 0);
+check('with everything still there', (await page.locator('.split-name').count()) > 0);
+
+await page.locator('.btn-danger').click();
+await page.locator('.btn-danger-on').click();
+await page.waitForTimeout(300);
+
+check('erasing leaves no splits', (await page.locator('.split-name').count()) === 0);
+check('no tracked rows', (await page.locator('.daily-row').count()) === 0);
+check('no starred lifts', (await page.locator('.summary-name').count()) === 0);
+check('and says how to start', (await page.locator('.empty, .note').first().textContent())?.length > 0);
+check('the samples do not creep back', (await page.locator('.banner-sample').count()) === 0);
+check('but are offered', (await page.locator('.note .btn', { hasText: 'Load sample' }).count()) === 1);
+await page.screenshot({ path: join(SHOTS, '14-fresh.png'), fullPage: true });
+
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+check('the calendar is empty too', (await page.locator('.cal-trained').count()) === 0);
+check('and has no tracker dots', (await page.locator('.dot').count()) === 0);
+
+await page.reload();
+await page.waitForSelector('.cal');
+check('and it stays empty after a reload', (await page.locator('.cal-trained').count()) === 0);
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list, .note');
+check('there is nothing left to erase, so the button goes', (await page.locator('.btn-danger').count()) === 0);
+
+
 await browser.close();
 server.close();
 

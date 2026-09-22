@@ -805,3 +805,9 @@ body {
 }
 
 .dot-met { background: var(--accent); border-color: var(--accent); }
+
+/* Erasing everything: deliberately two taps, and coloured like it. */
+.danger-zone { margin-top: 16px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--ink) 9%, transparent); }
+.danger-note { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: var(--bad); }
+.btn-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.btn-danger-on { background: var(--bad); border-color: var(--bad); color: #fff; }

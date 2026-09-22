@@ -8,8 +8,11 @@
 
 import type { Session } from './types';
 import { parsePage } from './parse';
+import { makeEntry, pruneLog, type DailyEntry, type DailyLog } from './daily';
 
 const PAGE_BREAK = /^-{3,}$/;
+/** `@ Steps 7.5k/10k` — a daily tracker row, kept out of the notebook proper. */
+const DAILY_LINE = /^@\s*(.+?)\s+([^\s/]+)\s*\/\s*([^\s/]+)\s*$/;
 const HEADER_WITH_DATE = /(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s*$/;
 
 /** One page per day; a second page on the same date gets a suffix. */
@@ -22,12 +25,43 @@ export function newSessionId(date: string, existing: Session[]): string {
   }
 }
 
-export function exportText(sessions: Session[]): string {
-  return [...sessions]
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    .map((s) => s.text.trimEnd())
-    .join('\n\n\n')
-    .concat('\n');
+/**
+ * The notebook as plain text, with each day's tracker rows beneath it.
+ *
+ * Tracker rows are prefixed with `@` so they are unmistakably not sets, and
+ * a day that was tracked without a workout still gets a dated header — it
+ * happened, and the file is meant to hold everything.
+ */
+export function exportText(sessions: Session[], daily: DailyLog = {}): string {
+  const byDate = new Map<string, string[]>();
+
+  for (const session of sessions) {
+    const list = byDate.get(session.date) ?? [];
+    list.push(session.text.trimEnd());
+    byDate.set(session.date, list);
+  }
+
+  for (const date of Object.keys(daily)) {
+    if (!byDate.has(date)) byDate.set(date, [headerFor(date)]);
+  }
+
+  const dates = [...byDate.keys()].sort();
+
+  const chunks = dates.map((date) => {
+    const pages = byDate.get(date) ?? [];
+    const rows = (daily[date] ?? []).map((entry) => `@ ${entry.name} ${entry.value || '-'}/${entry.goal || '-'}`);
+    // The tracker belongs to the day, so it follows that day's last page.
+    const body = [...pages];
+    if (rows.length) body[body.length - 1] = `${body[body.length - 1]}\n\n${rows.join('\n')}`;
+    return body.join('\n\n\n');
+  });
+
+  return chunks.join('\n\n\n').concat('\n');
+}
+
+function headerFor(date: string): string {
+  const [, month, day] = date.split('-').map(Number);
+  return `${month}/${day}`;
 }
 
 /**
@@ -36,7 +70,7 @@ export function exportText(sessions: Session[]): string {
  * A page starts at a `---` break, or at a line ending in a date that follows
  * a blank line — which is exactly what the app writes at the top of every page.
  */
-export function importText(text: string, today = new Date()): Session[] {
+export function importText(text: string, today = new Date()): { sessions: Session[]; daily: DailyLog } {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const chunks: string[][] = [];
   let currentChunk: string[] | null = null;
@@ -62,25 +96,52 @@ export function importText(text: string, today = new Date()): Session[] {
   }
 
   const sessions: Session[] = [];
+  const daily: DailyLog = {};
+
   for (const chunk of chunks) {
-    const pageText = chunk.join('\n').trimEnd();
-    if (!pageText.trim()) continue;
+    // Pull the tracker rows out before the rest is read as a notebook page.
+    const rows: DailyEntry[] = [];
+    const pageLines: string[] = [];
+
+    for (const line of chunk) {
+      const match = DAILY_LINE.exec(line.trim());
+      if (match) {
+        const [, name, value, goal] = match;
+        rows.push(makeEntry(name, goal === '-' ? '' : goal, value === '-' ? '' : value));
+      } else {
+        pageLines.push(line);
+      }
+    }
+
+    const pageText = pageLines.join('\n').trimEnd();
+    if (!pageText.trim() && rows.length === 0) continue;
+
     const page = parsePage(pageText, today);
     const date = page.date ?? isoToday(today);
-    sessions.push({ id: newSessionId(date, sessions), date, text: pageText, updatedAt: Date.now() });
+
+    if (rows.length > 0) daily[date] = [...(daily[date] ?? []), ...rows];
+    // A day that was only tracked leaves a header and nothing else; there is
+    // no workout to keep.
+    if (page.exercises.length > 0 || page.flagged.length > 0 || page.notes.length > 0) {
+      sessions.push({ id: newSessionId(date, sessions), date, text: pageText, updatedAt: Date.now() });
+    }
   }
-  return sessions;
+
+  return { sessions, daily: pruneLog(daily) };
 }
 
-export function exportJson(sessions: Session[]): string {
-  return JSON.stringify({ format: 'gym-notebook', version: 1, sessions }, null, 2);
+export function exportJson(sessions: Session[], daily: DailyLog = {}): string {
+  return JSON.stringify({ format: 'gym-notebook', version: 2, sessions, daily }, null, 2);
 }
 
-export function importJson(text: string): Session[] {
-  const parsed = JSON.parse(text) as { sessions?: unknown };
+export function importJson(text: string): { sessions: Session[]; daily: DailyLog } {
+  const parsed = JSON.parse(text) as { sessions?: unknown; daily?: unknown };
   if (!parsed || !Array.isArray(parsed.sessions)) throw new Error('not a gym-notebook backup');
 
-  return parsed.sessions.map((raw) => {
+  // Version 1 backups predate the tracker and simply have none.
+  const daily = isDailyLog(parsed.daily) ? pruneLog(parsed.daily) : {};
+
+  const sessions = parsed.sessions.map((raw) => {
     const s = raw as Partial<Session>;
     if (typeof s.text !== 'string' || typeof s.date !== 'string') throw new Error('a page in this backup is missing its text or date');
     return {
@@ -91,6 +152,18 @@ export function importJson(text: string): Session[] {
       sample: s.sample === true ? true : undefined,
     };
   });
+
+  return { sessions, daily };
+}
+
+function isDailyLog(value: unknown): value is DailyLog {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value as Record<string, unknown>).every((entries) => Array.isArray(entries));
+}
+
+/** Fold a restored tracker into the one on this device, day by day. */
+export function mergeDaily(existing: DailyLog, incoming: DailyLog): DailyLog {
+  return pruneLog({ ...existing, ...incoming });
 }
 
 /**

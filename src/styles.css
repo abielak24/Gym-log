@@ -732,3 +732,68 @@ body {
 }
 
 .split-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+
+/* Daily tracker ----------------------------------------------------------- */
+
+.daily-list { list-style: none; margin: 0; padding: 0; }
+
+.daily-row {
+  padding: 9px 0 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.daily-top { display: flex; align-items: center; gap: 6px; }
+
+.daily-name,
+.daily-value,
+.daily-goal {
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  outline: none;
+  min-width: 0;
+}
+
+.daily-name { flex: 1; font-weight: 600; }
+.daily-value, .daily-goal { width: 68px; flex: none; font-family: var(--font-mono); text-align: center; }
+.daily-goal { background: none; color: var(--ink-dim); }
+.daily-slash { color: var(--ink-faint); flex: none; }
+
+.daily-name:focus, .daily-value:focus, .daily-goal:focus { border-color: var(--accent); }
+
+.daily-bar {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+
+.daily-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--ink-faint);
+  transition: width 0.2s;
+}
+
+.daily-met .daily-bar span { background: var(--accent); }
+.daily-met .daily-value { color: var(--accent); }
+.daily-unreadable .daily-value { color: var(--bad); }
+
+/* Tracker dots on a calendar square. */
+.cal-dots { display: flex; gap: 3px; margin-top: auto; padding-top: 3px; }
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-faint);
+}
+
+.dot-met { background: var(--accent); border-color: var(--accent); }

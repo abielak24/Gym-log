@@ -22,8 +22,8 @@ Lat Pull Down   170x6    170x6    180x5
 
 ## How it's organised
 
-Two tabs. **Home** is your splits and your key lifts; **Calendar** is the
-month, with the workouts written onto it.
+Two tabs. **Home** is your splits, your daily tracker and your key lifts;
+**Calendar** is the month, with the workouts written onto it.
 
 **Splits** are not set up — they're read out of what you've written. Every
 page title you've used is a split, and its exercises are whatever the recent
@@ -45,9 +45,26 @@ so when you reshuffle your training, the lifts you actually care about don't
 quietly vanish along with the split that used to contain them. A starred lift
 you haven't touched in two weeks says so.
 
+**The daily tracker** is separate from all the split machinery — things you
+count every day rather than lift in a session:
+
+```
+Pushups    100   / 100
+Cardio     30min / 30min
+Steps      7.5k  / 10k
+```
+
+Write the numbers the way you say them: `100`, `30min`, `1h`, `10k`, `5mi`.
+Each day owns its own goals, so a target can change without rewriting
+history, and a new day arrives pre-filled with yesterday's goals and empty
+values — one number per row to fill in. A day you never touch stays
+untracked rather than becoming a row of zeroes.
+
 **The calendar** fills itself in: a day is marked because a page was written
 for it, not because anything was scheduled. Tap a day you trained to open it
-for editing; tap an empty one to add a workout you forgot to write down.
+for editing; tap an empty one to add a workout you forgot to write down. The
+dots under a date are that day's daily goals — solid for each one met — and
+any day's tracker can be opened from there.
 
 **Nothing is saved by hand.** A cell saves itself a moment after you stop
 typing, and again the instant the app is backgrounded or closed. Grey text
@@ -81,6 +98,7 @@ follows, written down:
 | `25x10 \| 20x10` | its sets: a column per side, split by the same pipe |
 | `95x7 (felt heavy)` | a set with a note attached |
 | `// slept badly` | a note, ignored by history |
+| `@ Steps 7.5k/10k` | a daily tracker row — only ever written by the export |
 
 Spaces around the `x` don't matter, and `X` works too. The page title is what
 puts a session in a split, which is the whole of the bookkeeping.
@@ -108,7 +126,9 @@ phone loses the log, so the bottom of Home has **Save as text**, which hands
 iOS a plain `.txt` file: *Share → Save to Files → iCloud Drive*. The file is the
 notebook, in the format above, readable in any text editor forever. **Save as
 JSON** is the same data in a form that restores byte-exactly, and **Restore**
-reads either back.
+reads either back. Both carry the daily tracker: in the text file it appears
+as `@` lines under the day it belongs to, which import back as tracker rows
+rather than as sets.
 
 No browser can write to iCloud Drive on its own, so this is one deliberate tap
 rather than background sync. The app nudges you if a week goes by without one.

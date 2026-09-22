@@ -12,6 +12,7 @@ import { parsePage } from '../core/parse';
 import { isoToday, newSessionId } from '../core/serialize';
 import { createSamples } from '../core/sample';
 import { buildTemplates } from '../core/templates';
+import { entriesFor, pruneLog, seedFor, type DailyEntry, type DailyLog } from '../core/daily';
 import { writeCell } from '../core/edit';
 import { normalizeName } from '../core/normalize';
 
@@ -26,6 +27,8 @@ interface Stored {
   overrides: TemplateOverride[];
   /** Exercise keys pinned to the summary. */
   starred: string[];
+  /** The daily tracker, by ISO date. A date absent here was not tracked. */
+  daily: DailyLog;
 }
 
 const EMPTY: Stored = {
@@ -35,6 +38,7 @@ const EMPTY: Stored = {
   samplesCleared: false,
   overrides: [],
   starred: [],
+  daily: {},
 };
 
 let state: Stored = EMPTY;
@@ -166,6 +170,23 @@ export function saveOverride(key: string, patch: Partial<TemplateOverride>): voi
   emit();
 }
 
+export function dailyLog(): DailyLog {
+  return state.daily;
+}
+
+/** A day's rows: what was written, or the last tracked day's goals to start from. */
+export function dailyFor(date: string): { entries: DailyEntry[]; seeded: boolean } {
+  const stored = entriesFor(state.daily, date);
+  if (stored.length > 0) return { entries: stored, seeded: false };
+  return { entries: seedFor(state.daily, date), seeded: true };
+}
+
+export function saveDaily(date: string, entries: DailyEntry[]): void {
+  state = { ...state, daily: pruneLog({ ...state.daily, [date]: entries }) };
+  persist();
+  emit();
+}
+
 export function starredKeys(): string[] {
   return state.starred;
 }
@@ -227,8 +248,8 @@ export function clearSamples(): void {
   emit();
 }
 
-export function replaceAll(sessions: Session[]): void {
-  state = { ...state, sessions, samplesCleared: true };
+export function replaceAll(sessions: Session[], daily?: DailyLog): void {
+  state = { ...state, sessions, samplesCleared: true, daily: daily ?? state.daily };
   persist();
   emit();
 }

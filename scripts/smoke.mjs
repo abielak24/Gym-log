@@ -174,8 +174,8 @@ check('and opens its history', (await page.locator('.exercise-name').textContent
 // --- A brand new split -------------------------------------------------------
 await page.goto(`${url}#/home`);
 await page.waitForSelector('.split-list');
-await page.locator('input[placeholder^="New split"]').fill('Legs');
-await page.locator('.add-exercise .btn-ghost').last().click();
+await page.locator('input[aria-label="New split"]').fill('Legs');
+await page.locator('button[aria-label="Add split"]').click();
 await page.waitForSelector('.grid');
 check('a new split opens straight into its grid', (await page.locator('.split-head h1').textContent()) === 'Legs');
 await page.locator('.add-exercise input').fill('Squat');
@@ -332,12 +332,70 @@ check('there is no log tab any more', (await page.locator('.tab', { hasText: 'Lo
 check('the tabs are Home and Calendar', (await page.locator('.tab').allTextContents()).join(',') === 'Home,Calendar');
 await page.screenshot({ path: join(SHOTS, '8-home.png'), fullPage: true });
 
+// --- The daily tracker ---------------------------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.daily');
+check('the tracker starts empty and says what it is for', (await page.locator('.daily .note').count()) === 1);
+
+for (const name of ['Pushups', 'Cardio', 'Steps']) {
+  await page.locator('input[aria-label="Add something to track daily"]').fill(name);
+  await page.locator('button[aria-label="Add daily tracker row"]').click();
+  await page.waitForTimeout(150);
+}
+check('three things can be tracked', (await page.locator('.daily-row').count()) === 3, String(await page.locator('.daily-row').count()));
+
+const goals = [['Pushups', '100', '100'], ['Cardio', '30min', '30min'], ['Steps', '10k', '7.5k']];
+for (const [name, goal, value] of goals) {
+  await page.locator(`input[aria-label="${name} goal"]`).fill(goal);
+  await page.locator(`input[aria-label="${name} today"]`).fill(value);
+}
+await page.waitForTimeout(600);
+
+check('a met goal is marked', (await page.locator('.daily-met').count()) === 2, String(await page.locator('.daily-met').count()));
+check('a missed goal is not', (await page.locator('.daily-row:not(.daily-met)').count()) === 1);
+const width = await page.locator('.daily-row:not(.daily-met) .daily-bar span').evaluate((el) => el.style.width);
+check('and shows how far through it is', width === '75%', width);
+await page.screenshot({ path: join(SHOTS, '11-daily.png'), fullPage: true });
+
+await page.reload();
+await page.waitForSelector('.daily-row');
+check('the tracker is saved without a save button', (await page.locator('input[aria-label="Steps today"]').inputValue()) === '7.5k');
+check('and the headline counts the day', (await page.locator('.section-title').allTextContents()).some((s) => s.includes('2 of 3 met')));
+
+// --- It reaches the calendar -------------------------------------------------------
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+const dots = await page.locator('.cal-today .dot').count();
+const met = await page.locator('.cal-today .dot-met').count();
+check('today shows a dot per goal tracked', dots === 3, String(dots));
+check('filled for the ones met', met === 2, String(met));
+await page.screenshot({ path: join(SHOTS, '12-calendar-dots.png'), fullPage: true });
+
+await page.locator('.cal-today').click();
+await page.waitForSelector('.cal-panel');
+await page.locator('.cal-panel a', { hasText: 'Daily' }).click();
+await page.waitForSelector('.daily-row');
+check('a day\u2019s tracker can be opened from the calendar', (await page.locator('.exercise-name').textContent())?.startsWith('Daily'));
+
+// --- Goals belong to the day they were set on ------------------------------------------
+await page.goto(`${url}#/daily/2026-09-15`);
+await page.waitForSelector('.daily');
+check('an untracked past day starts from the last tracked goals', (await page.locator('input[aria-label="Pushups goal"]').inputValue()) === '100');
+check('with its values empty, not borrowed', (await page.locator('input[aria-label="Pushups today"]').inputValue()) === '');
+await page.locator('input[aria-label="Pushups goal"]').fill('50');
+await page.locator('input[aria-label="Pushups today"]').fill('50');
+await page.waitForTimeout(600);
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.daily-row');
+check('changing an old day\u2019s goal leaves today alone', (await page.locator('input[aria-label="Pushups goal"]').inputValue()) === '100');
+
 // --- Light mode -----------------------------------------------------------------------------
 const lightPage = await (await browser.newContext({
   viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'light',
 })).newPage();
-await lightPage.goto(`${url}#/cal`);
-await lightPage.waitForSelector('.cal');
+await lightPage.goto(`${url}#/home`);
+await lightPage.waitForSelector('.daily');
 await lightPage.screenshot({ path: join(SHOTS, '9-light.png'), fullPage: true });
 check('light mode renders', true);
 

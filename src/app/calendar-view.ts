@@ -15,7 +15,7 @@ import * as store from './store';
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export function renderCalendar(root: HTMLElement, key?: string): void {
-  const month = buildMonth(key || monthKey(new Date()), store.sessions());
+  const month = buildMonth(key || monthKey(new Date()), store.sessions(), new Date(), store.dailyLog());
   root.replaceChildren();
 
   const head = document.createElement('div');
@@ -86,19 +86,32 @@ function dayCell(day: CalendarDay, root: HTMLElement): HTMLElement {
     cell.append(tag);
   }
 
-  cell.setAttribute(
-    'aria-label',
-    day.sessions.length
-      ? `${friendlyDate(day.date)}: ${day.sessions.map((s) => s.title || 'untitled').join(', ')}`
-      : `${friendlyDate(day.date)}: nothing logged`,
-  );
+  // A dot per goal filled in, solid where it was met.
+  if (day.tracker) {
+    const dots = document.createElement('span');
+    dots.className = 'cal-dots';
+    for (let i = 0; i < Math.min(day.tracker.tracked, 5); i++) {
+      const dot = document.createElement('i');
+      dot.className = i < day.tracker.met ? 'dot dot-met' : 'dot';
+      dots.append(dot);
+    }
+    cell.append(dots);
+  }
+
+  const parts: string[] = [];
+  parts.push(day.sessions.length
+    ? day.sessions.map((s) => s.title || 'untitled').join(', ')
+    : 'nothing logged');
+  if (day.tracker) parts.push(`${day.tracker.met} of ${day.tracker.tracked} daily goals met`);
+  cell.setAttribute('aria-label', `${friendlyDate(day.date)}: ${parts.join('; ')}`);
 
   cell.addEventListener('click', () => {
-    if (day.sessions.length === 1) {
+    // One workout and no tracker is unambiguous; anything else asks.
+    if (day.sessions.length === 1 && !day.tracker) {
       open(day.sessions[0]);
       return;
     }
-    if (day.sessions.length > 1) {
+    if (day.sessions.length > 0) {
       chooseSession(root, day);
       return;
     }
@@ -117,14 +130,24 @@ function open(session: { id: string; key: string }): void {
 }
 
 function chooseSession(root: HTMLElement, day: CalendarDay): void {
-  panel(root, `${friendlyDate(day.date)}`, day.sessions.map((session) => {
+  const buttons = day.sessions.map((session) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'btn btn-chip';
     button.textContent = session.title || 'untitled';
     button.addEventListener('click', () => open(session));
     return button;
-  }));
+  });
+  panel(root, friendlyDate(day.date), [...buttons, dailyLink(day.date)]);
+}
+
+/** Every day can have its tracker opened, workout or not. */
+function dailyLink(date: string): HTMLElement {
+  const link = document.createElement('a');
+  link.className = 'btn btn-chip';
+  link.href = `#/daily/${encodeURIComponent(date)}`;
+  link.textContent = 'Daily';
+  return link;
 }
 
 /** Put a workout on a day that has none — usually one you forgot to write down. */
@@ -143,8 +166,8 @@ function offerSplits(root: HTMLElement, day: CalendarDay): void {
     return button;
   });
 
-  const heading = day.date === isoToday() ? 'Log today' : `Add a workout on ${friendlyDate(day.date)}`;
-  panel(root, heading, buttons.length ? buttons : [note('No splits yet — start one from Home.')]);
+  const heading = day.date === isoToday() ? 'Log today' : `Add to ${friendlyDate(day.date)}`;
+  panel(root, heading, [...(buttons.length ? buttons : [note('No splits yet \u2014 start one from Home.')]), dailyLink(day.date)]);
 }
 
 function panel(root: HTMLElement, heading: string, children: HTMLElement[]): void {
@@ -169,7 +192,7 @@ function panel(root: HTMLElement, heading: string, children: HTMLElement[]): voi
 function legend(): HTMLElement {
   const text = document.createElement('p');
   text.className = 'note';
-  text.textContent = 'Tap a day you trained to open and edit it, or an empty one to add a workout you forgot to write down.';
+  text.textContent = 'Tap a day you trained to open and edit it, or an empty one to add a workout you forgot to write down. Dots are the daily goals you met.';
   return text;
 }
 

@@ -15,6 +15,7 @@ import type { Template } from '../core/types';
 import { friendlyDate } from './format';
 import * as store from './store';
 import { backupNudge, backupPanel, samplesBanner } from './panels';
+import { dailyHeadline, dailySection } from './daily-view';
 
 /** A starred lift untouched for this long is worth pointing at. */
 const STALE_DAYS = 14;
@@ -56,6 +57,10 @@ export function renderHome(root: HTMLElement): void {
   }
 
   root.append(newSplitForm());
+
+  const headline = dailyHeadline(today);
+  root.append(sectionTitle(headline ? `Daily \u00b7 ${headline}` : 'Daily'));
+  root.append(dailySection(today));
 
   root.append(sectionTitle('Key lifts'));
   root.append(summaryCard());
@@ -172,11 +177,13 @@ function newSplitForm(): HTMLElement {
   input.className = 'search';
   input.placeholder = 'New split, e.g. Legs';
   input.autocapitalize = 'words';
+  input.setAttribute('aria-label', 'New split');
 
   const submit = document.createElement('button');
   submit.type = 'submit';
   submit.className = 'btn btn-ghost';
   submit.textContent = 'Add';
+  submit.setAttribute('aria-label', 'Add split');
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();

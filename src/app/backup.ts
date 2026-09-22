@@ -7,7 +7,7 @@
  * can read on anything.
  */
 
-import { exportJson, exportText, importJson, importText, mergeSessions } from '../core/serialize';
+import { exportJson, exportText, importJson, importText, mergeDaily, mergeSessions } from '../core/serialize';
 import type { Session } from '../core/types';
 import * as store from './store';
 
@@ -23,9 +23,10 @@ function realSessions(): Session[] {
 
 export async function backupNow(format: 'txt' | 'json' = 'txt'): Promise<string> {
   const sessions = realSessions();
-  if (sessions.length === 0) return 'Nothing written yet.';
+  if (sessions.length === 0 && Object.keys(store.dailyLog()).length === 0) return 'Nothing written yet.';
 
-  const contents = format === 'txt' ? exportText(sessions) : exportJson(sessions);
+  const daily = store.dailyLog();
+  const contents = format === 'txt' ? exportText(sessions, daily) : exportJson(sessions, daily);
   const type = format === 'txt' ? 'text/plain' : 'application/json';
   const name = filename(format);
   const file = new File([contents], name, { type });
@@ -55,19 +56,24 @@ export async function restoreFrom(file: File): Promise<string> {
   const text = await file.text();
   const looksLikeJson = file.name.endsWith('.json') || text.trimStart().startsWith('{');
 
-  let incoming: Session[];
+  let incoming: { sessions: Session[]; daily: ReturnType<typeof store.dailyLog> };
   try {
     incoming = looksLikeJson ? importJson(text) : importText(text);
   } catch (error) {
     return `Could not read that file: ${(error as Error).message}`;
   }
 
-  if (incoming.length === 0) return 'No pages found in that file.';
+  const trackedDays = Object.keys(incoming.daily).length;
+  if (incoming.sessions.length === 0 && trackedDays === 0) return 'No pages found in that file.';
 
-  const { sessions, added, replaced } = mergeSessions(realSessions(), incoming);
-  store.replaceAll(sessions);
+  const { sessions, added, replaced } = mergeSessions(realSessions(), incoming.sessions);
+  store.replaceAll(sessions, mergeDaily(store.dailyLog(), incoming.daily));
 
-  const parts = [added ? `${added} page${added === 1 ? '' : 's'} added` : '', replaced ? `${replaced} replaced` : ''];
+  const parts = [
+    added ? `${added} page${added === 1 ? '' : 's'} added` : '',
+    replaced ? `${replaced} replaced` : '',
+    trackedDays ? `${trackedDays} tracked day${trackedDays === 1 ? '' : 's'}` : '',
+  ];
   const summary = parts.filter(Boolean).join(', ');
   return summary ? `Restored: ${summary}.` : 'Everything in that file was already here.';
 }

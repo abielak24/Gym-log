@@ -9,6 +9,7 @@
 import type { Session } from './types';
 import { parsePage } from './parse';
 import { normalizeName } from './normalize';
+import { summarise, type DailyLog, type DaySummary } from './daily';
 
 export interface DaySession {
   id: string;
@@ -27,6 +28,8 @@ export interface CalendarDay {
   isToday: boolean;
   isFuture: boolean;
   sessions: DaySession[];
+  /** Null when the day was not tracked at all. */
+  tracker: DaySummary | null;
 }
 
 export interface CalendarMonth {
@@ -55,7 +58,7 @@ export function shiftMonth(key: string, by: number): string {
   return monthKey(shifted);
 }
 
-export function buildMonth(key: string, sessions: Session[], today = new Date()): CalendarMonth {
+export function buildMonth(key: string, sessions: Session[], today = new Date(), daily: DailyLog = {}): CalendarMonth {
   const [year, month] = key.split('-').map(Number);
   const byDate = groupByDate(sessions);
 
@@ -80,6 +83,9 @@ export function buildMonth(key: string, sessions: Session[], today = new Date())
       const daySessions = byDate.get(dateIso) ?? [];
       if (inMonth && daySessions.length > 0) trained += 1;
 
+      const rows = daily[dateIso];
+      const tracker = rows && rows.length > 0 ? summarise(rows) : null;
+
       days.push({
         date: dateIso,
         dayOfMonth: date.getDate(),
@@ -87,6 +93,7 @@ export function buildMonth(key: string, sessions: Session[], today = new Date())
         isToday: dateIso === todayIso,
         isFuture: dateIso > todayIso,
         sessions: daySessions,
+        tracker: tracker && tracker.tracked > 0 ? tracker : null,
       });
     }
     weeks.push(days);

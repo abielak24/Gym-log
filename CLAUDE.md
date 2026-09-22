@@ -25,8 +25,8 @@ app failing to open offline.
 ## Layout
 
 - `src/core/` — the format (`parse`), splits (`templates`), the grid
-  (`grid`), writing a cell back into a page (`edit`), the history index and
-  the export. Plain TypeScript, **no browser imports**. This is the part that
+  (`grid`), writing a cell back into a page (`edit`), the month (`calendar`),
+  the daily tracker (`daily`), the history index and the export. Plain TypeScript, **no browser imports**. This is the part that
   would move into a native app unchanged, so keep DOM code out of it.
 - `src/app/` — the only code that touches the DOM. `grid-view` is the main
   screen, `home-view` the splits and key lifts, `calendar-view` the month,
@@ -36,7 +36,13 @@ app failing to open offline.
 
 ## One source of truth
 
-Pages are the only stored workout data. Splits, the grid, history and the
+Pages are the only stored workout data. The daily tracker is the one thing
+deliberately outside them: it is not a workout, it has no exercises, and
+forcing it into the notebook format would have meant inventing syntax the
+parser then had to ignore. It lives in `state.daily`, keyed by ISO date, and
+rides along in both exports.
+
+ Splits, the grid, history and the
 summary are all **derived by parsing page text**, and every grid cell edit
 goes back through `writeCell` into that text. Nothing about a workout is
 stored twice. Keep it that way: the plain-text export is only honest because
@@ -60,6 +66,12 @@ page cannot express — `overrides` (a renamed or reordered split) and
 - **Supersets** parse from `|` into separate tracked columns, but are shown
   as text. The parsing is deliberate — the format must not be lossy — and the
   two-column display is deliberately deferred.
+- **A day with no tracker rows was not tracked** — it is never a zero.
+  `pruneLog` drops days whose rows are all empty, so opening a day and
+  leaving it does not mark it.
+- **Each day owns its goals.** Seeding a new day from the last tracked one
+  is a typing convenience, not a link: editing an old day's goal must never
+  touch another day's.
 - **Splits are derived, not configured.** An exercise written into today's
   page joins that split silently; one that stops being done falls out after
   `RECENT_WINDOW` sessions. Do not add a setup step for this.

@@ -11,6 +11,7 @@ import { renderHome, renderSummary } from './app/home-view';
 import { flushCells, renderTemplate } from './app/grid-view';
 import { renderEditSplit } from './app/edit-split';
 import { renderCalendar } from './app/calendar-view';
+import { flushDaily, renderDailyPage } from './app/daily-view';
 
 const view = document.getElementById('view') as HTMLElement;
 const tabs = [...document.querySelectorAll<HTMLAnchorElement>('.tab')];
@@ -20,6 +21,7 @@ function route(): void {
   const [screen, rest] = [hash.split('/')[0], hash.split('/').slice(1).join('/')];
 
   flushCells();
+  flushDaily();
   teardown();
   window.scrollTo(0, 0);
 
@@ -39,6 +41,9 @@ function route(): void {
     case 'summary':
       renderSummary(view);
       break;
+    case 'daily':
+      renderDailyPage(view, decodeURIComponent(rest));
+      break;
     case 'page':
       renderPage(view, decodeURIComponent(rest));
       break;
@@ -51,9 +56,12 @@ function route(): void {
 
   // Everything that hangs off the home screen keeps the Home tab lit.
   const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', 'page', ''];
+  const belongsToCalendar = ['cal', 'daily'];
   for (const tab of tabs) {
     const target = tab.getAttribute('href')?.replace(/^#\/?/, '') || 'home';
-    const on = target === screen || (target === 'home' && belongsToHome.includes(screen));
+    const on = target === screen
+      || (target === 'home' && belongsToHome.includes(screen))
+      || (target === 'cal' && belongsToCalendar.includes(screen));
     tab.classList.toggle('tab-on', on);
   }
 }
@@ -98,23 +106,24 @@ function registerServiceWorker(): void {
 store.load();
 store.pruneEmpty();
 store.subscribe(() => {
-  // Screens that own an input - the page editor, the grid's cells, the
-  // split editor mid-drag - must not be rebuilt underneath the finger.
+  // Never rebuild a screen while it is being typed into: home saves the
+  // daily tracker as you type, and redrawing would take the cursor with it.
+  if (document.activeElement && view.contains(document.activeElement)) return;
   if (location.hash.startsWith('#/home') || location.hash === '#/' || location.hash === '') route();
 });
 
 window.addEventListener('hashchange', route);
 // iOS often kills a backgrounded web app outright, and `pagehide` is the
 // last thing it reliably runs. Anything typed in the last moment saves here.
-window.addEventListener('pagehide', () => {
+function flushEverything(): void {
   flushCells();
+  flushDaily();
   teardown();
-});
+}
+
+window.addEventListener('pagehide', flushEverything);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    flushCells();
-    teardown();
-  }
+  if (document.visibilityState === 'hidden') flushEverything();
 });
 trackKeyboard();
 registerServiceWorker();

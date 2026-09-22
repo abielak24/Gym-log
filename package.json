@@ -1,0 +1,21 @@
+{
+  "name": "gym-notebook",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A workout notebook that remembers what you lifted last time",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "playwright": "^1.63.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0"
+  }
+}

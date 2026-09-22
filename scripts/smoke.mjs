@@ -28,15 +28,86 @@ const TYPES = {
   '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
 };
 
+/**
+ * A stand-in for the deployed worker: the same three routes, in memory.
+ * The worker's own rules are covered by tests/worker.test.ts; this exists so
+ * the client can be driven end to end without anything deployed.
+ */
+const crews = new Map();
+const members = new Map();
+
+async function crewApi(request, response, path) {
+  const body = await new Promise((resolve) => {
+    let raw = '';
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => resolve(raw));
+  });
+
+  const send = (status, payload) => {
+    response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+    response.end(JSON.stringify(payload));
+  };
+
+  if (request.method === 'POST' && path === '/api/crew') {
+    const crewId = `c${crews.size + 1}`;
+    const secret = `s${crews.size + 1}`;
+    crews.set(crewId, secret);
+    members.set(crewId, new Map());
+    return send(201, { crewId, secret });
+  }
+
+  const put = /^\/api\/crew\/([^/]+)\/member\/([^/]+)$/.exec(path);
+  const get = /^\/api\/crew\/([^/]+)$/.exec(path);
+  const crewId = put?.[1] ?? get?.[1];
+
+  if (!crewId || crews.get(crewId) !== request.headers['x-crew-secret']) return send(404, { error: 'no such crew' });
+
+  if (put && request.method === 'PUT') {
+    members.get(crewId).set(put[2], {
+      memberId: put[2],
+      name: JSON.parse(body).name,
+      updatedAt: Date.now(),
+      summary: JSON.parse(body),
+      token: request.headers['x-member-token'],
+    });
+    return send(200, { ok: true });
+  }
+
+  if (put && request.method === 'DELETE') {
+    members.get(crewId).delete(put[2]);
+    return send(200, { ok: true });
+  }
+
+  if (get && request.method === 'GET') {
+    return send(200, {
+      members: [...members.get(crewId).values()].map(({ token, ...rest }) => rest),
+    });
+  }
+
+  return send(404, { error: 'not found' });
+}
+
 function serve() {
   const server = createServer(async (request, response) => {
     let path = normalize(decodeURIComponent(new URL(request.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+
     if (BASE !== '/') {
       if (!path.startsWith(BASE)) {
         response.writeHead(404).end('outside the base path');
         return;
       }
       path = path.slice(BASE.length - 1);
+    }
+    if (path.startsWith('/api/')) {
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204, {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET,PUT,POST,DELETE,OPTIONS',
+          'access-control-allow-headers': 'content-type,x-crew-secret,x-member-token',
+        });
+        return response.end();
+      }
+      return crewApi(request, response, path);
     }
     const file = join(DIST, path === '/' ? 'index.html' : path);
     try {
@@ -372,7 +443,7 @@ check('a session can still be opened as raw text', (await page.locator('.page-te
 await page.goto(`${url}#/home`);
 await page.waitForSelector('.backup-box');
 check('there is no log tab any more', (await page.locator('.tab', { hasText: 'Log' }).count()) === 0);
-check('the tabs are Home and Calendar', (await page.locator('.tab').allTextContents()).join(',') === 'Home,Calendar');
+check('the tabs are Home, Calendar and Friends', (await page.locator('.tab').allTextContents()).join(',') === 'Home,Calendar,Friends');
 await page.screenshot({ path: join(SHOTS, '8-home.png'), fullPage: true });
 
 // --- The daily tracker ---------------------------------------------------------
@@ -477,6 +548,134 @@ await page.waitForSelector('.split-list', { timeout: 5000 }).catch(() => {});
 check('and everything written online is still there', (await page.locator('.summary-name').count()) === 2);
 await page.screenshot({ path: join(SHOTS, '10-offline.png'), fullPage: true });
 await context.setOffline(false);
+
+// --- A crew: one phone invites another ------------------------------------------
+const phone = async (colorScheme = 'dark') => {
+  const ctx = await browser.newContext({
+    viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme,
+    serviceWorkers: 'allow',
+  });
+  // Point the app at the stand-in worker, as a deploy would.
+  await ctx.addInitScript((api) => localStorage.setItem('gym-notebook:crew-api', api), `${url}api`);
+  return ctx;
+};
+
+const mineCtx = await phone();
+const mine = await mineCtx.newPage();
+mine.on('pageerror', (error) => check('no page errors on the crew tab', false, error.message));
+
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.add-exercise');
+check('the tab explains what a crew is before anything is sent', (await mine.locator('.banner-nudge').textContent())?.includes('never leave this phone'));
+check('and warns that the link is the key', (await mine.locator('.banner-nudge').textContent())?.includes('Anyone holding the link'));
+await mine.screenshot({ path: join(SHOTS, '16-crew-start.png'), fullPage: true });
+
+await mine.locator('input[aria-label="Your name on the board"]').fill('Alex');
+await mine.locator('.btn-primary', { hasText: 'Start a crew' }).click();
+await mine.waitForSelector('.board-list');
+
+const invite = await mine.locator('.share-link').textContent();
+check('a crew produces a link to send', invite?.includes('#/join/'), invite ?? '');
+check('and I am on the board straight away', (await mine.locator('.board-name').textContent())?.includes('Alex'));
+check('with what I have actually done', (await mine.locator('.board-stats').first().textContent())?.includes('lift'));
+
+// --- The friend opens the link on their own phone ----------------------------------
+const theirsCtx = await phone();
+const theirs = await theirsCtx.newPage();
+theirs.on('pageerror', (error) => check('no page errors on the friend\u2019s phone', false, error.message));
+await theirs.goto(invite.trim());
+await theirs.waitForSelector('.add-exercise');
+check('the link lands the friend on a join screen', (await theirs.locator('.exercise-name').textContent()) === 'Join this crew');
+
+await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
+await theirs.waitForSelector('.board-list');
+check('joining shows the board', (await theirs.locator('.board-name').count()) === 2);
+
+await theirs.goto(`${url}#/home`);
+await theirs.waitForSelector('input[aria-label="New split"]');
+check('and the friend still gets a working app of their own', (await theirs.locator('.split-name').count()) > 0);
+check('the crew tab does not paint over it', (await theirs.locator('.section-title').count()) > 0);
+
+// Clear the samples so what follows is only what this friend actually did.
+await theirs.locator('.banner-sample .btn').click();
+await theirs.waitForTimeout(300);
+
+// --- Their training shows up on my board --------------------------------------------
+await theirs.locator('input[aria-label="New split"]').fill('Legs');
+await theirs.locator('button[aria-label="Add split"]').click();
+await theirs.waitForSelector('.grid');
+await theirs.locator('.add-exercise input').fill('Squat');
+await theirs.locator('.add-exercise .btn-ghost').click();
+await theirs.waitForTimeout(200);
+await theirs.locator('textarea[data-exercise="Squat"]').fill('225x5\n245x3');
+await theirs.waitForTimeout(4000);
+
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+// Already on this tab, so nothing re-rendered: ask the board directly.
+await mine.locator('.btn', { hasText: 'Refresh' }).click();
+await mine.waitForTimeout(800);
+const names = await mine.locator('.board-name').allTextContents();
+check('my board shows my friend', names.some((n) => n.startsWith('Sam')), names.join(', '));
+check('and marks which row is mine', names.some((n) => n.includes('(you)')));
+const samRow = await mine.locator('.board-row', { hasText: 'Sam' }).locator('.board-stats').textContent();
+check('with their week on it', samRow?.includes('1 day this week'), samRow ?? '');
+
+await mine.goto(`${url}#/home`);
+await mine.waitForSelector('.split-list');
+check('but their workouts stay on their phone, not mine', (await mine.locator('.split-name').allTextContents()).includes('Legs') === false);
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+await mine.screenshot({ path: join(SHOTS, '17-crew-board.png'), fullPage: true });
+
+// --- What is shared, and what is not --------------------------------------------------
+const posted = await theirs.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).lastPosted);
+check('a summary carries lifts and best sets', posted.includes('Squat') && posted.includes('245'));
+check('but no page text', posted.includes('Legs 9/') === false);
+check('and no session detail', posted.includes('225x5\n245x3') === false);
+
+// --- Holding one lift back ---------------------------------------------------------------
+await theirs.goto(`${url}#/exercise/squat`);
+await theirs.waitForSelector('.exercise-head');
+check('a lift can be held back from the crew', (await theirs.locator('.btn', { hasText: 'Shared with your crew' }).count()) === 1);
+await theirs.locator('.btn', { hasText: 'Shared with your crew' }).click();
+await theirs.waitForTimeout(4000);
+check('and says so once held back', (await theirs.locator('.btn', { hasText: 'Held back' }).count()) === 1);
+
+const afterHiding = await theirs.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).lastPosted);
+check('a held-back lift stops being sent', afterHiding.includes('Squat') === false, afterHiding.slice(0, 120));
+
+// --- Pausing, and leaving ------------------------------------------------------------------
+await theirs.goto(`${url}#/friends`);
+await theirs.waitForSelector('.board-list');
+await theirs.locator('.btn', { hasText: 'Pause sharing' }).click();
+await theirs.waitForTimeout(300);
+check('sharing can be paused without leaving', (await theirs.locator('.banner-nudge').textContent())?.includes('paused'));
+
+await theirs.locator('.btn', { hasText: 'Leave crew' }).click();
+await theirs.waitForTimeout(600);
+check('leaving returns to the start screen', (await theirs.locator('.btn-primary', { hasText: 'Start a crew' }).count()) === 1);
+
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+await mine.locator('.btn', { hasText: 'Refresh' }).click();
+await mine.waitForTimeout(800);
+check('and takes their row off my board', (await mine.locator('.board-name').count()) === 1);
+
+// --- The crew never gets in the way of logging -----------------------------------------------
+await mineCtx.setOffline(true);
+await mine.goto(`${url}#/home`);
+await mine.waitForSelector('.daily, .split-list');
+check('the app still works with the crew unreachable', (await mine.locator('.split-name').count()) > 0);
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+check('and the board shows its last known copy', (await mine.locator('.board-name').count()) >= 1);
+check('saying when it was from', (await mine.locator('.board-footer .note').textContent())?.includes('As of'));
+await mineCtx.setOffline(false);
+
+await mineCtx.close();
+await theirsCtx.close();
 
 // --- Starting fresh -------------------------------------------------------------
 await page.goto(`${url}#/home`);

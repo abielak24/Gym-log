@@ -1,0 +1,9 @@
+name = "gym-log-crew"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gym-log-crew"
+# Replace with the id printed by: npx wrangler d1 create gym-log-crew
+database_id = "REPLACE_ME"

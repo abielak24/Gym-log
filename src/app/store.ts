@@ -13,6 +13,7 @@ import { isoToday, newSessionId } from '../core/serialize';
 import { createSampleDaily, createSamples } from '../core/sample';
 import { buildTemplates } from '../core/templates';
 import { entriesFor, pruneLog, seedFor, type DailyEntry, type DailyLog } from '../core/daily';
+import type { BoardMember } from './crew';
 import { writeCell } from '../core/edit';
 import { normalizeName } from '../core/normalize';
 
@@ -31,6 +32,24 @@ interface Stored {
   daily: DailyLog;
   /** Tracker days that came from the sample data, so they can be cleared. */
   sampleDaily: string[];
+  /** This phone's place in a crew, if it is in one. */
+  crew: Crew | null;
+  /** Sharing stopped without leaving the crew. */
+  crewPaused: boolean;
+  /** Exercise keys held back from the crew. */
+  hiddenFromCrew: string[];
+  /** The last board fetched, kept so the tab says something offline. */
+  board: { members: BoardMember[]; fetchedAt: number } | null;
+  /** The last summary posted, so an unchanged one is not posted again. */
+  lastPosted: string;
+}
+
+export interface Crew {
+  id: string;
+  secret: string;
+  memberId: string;
+  token: string;
+  name: string;
 }
 
 const EMPTY: Stored = {
@@ -42,6 +61,11 @@ const EMPTY: Stored = {
   starred: [],
   daily: {},
   sampleDaily: [],
+  crew: null,
+  crewPaused: false,
+  hiddenFromCrew: [],
+  board: null,
+  lastPosted: '',
 };
 
 let state: Stored = EMPTY;
@@ -170,6 +194,86 @@ export function saveOverride(key: string, patch: Partial<TemplateOverride>): voi
   };
   persist();
   emit();
+}
+
+export function crew(): Crew | null {
+  return state.crew;
+}
+
+export function setCrew(next: Crew): void {
+  state = { ...state, crew: next, crewPaused: false, board: null, lastPosted: '' };
+  persist();
+  emit();
+}
+
+export function clearCrew(): void {
+  state = { ...state, crew: null, board: null, lastPosted: '' };
+  persist();
+  emit();
+}
+
+export function renameInCrew(name: string): void {
+  if (!state.crew) return;
+  state = { ...state, crew: { ...state.crew, name }, lastPosted: '' };
+  persist();
+  emit();
+}
+
+export function crewPaused(): boolean {
+  return state.crewPaused;
+}
+
+export function setCrewPaused(paused: boolean): void {
+  state = { ...state, crewPaused: paused };
+  persist();
+  emit();
+}
+
+export function hiddenFromCrew(): string[] {
+  return state.hiddenFromCrew;
+}
+
+export function isHiddenFromCrew(key: string): boolean {
+  return state.hiddenFromCrew.includes(key);
+}
+
+export function toggleHiddenFromCrew(key: string): void {
+  const hidden = state.hiddenFromCrew.includes(key)
+    ? state.hiddenFromCrew.filter((k) => k !== key)
+    : [...state.hiddenFromCrew, key];
+  state = { ...state, hiddenFromCrew: hidden, lastPosted: '' };
+  persist();
+  emit();
+}
+
+export function board(): { members: BoardMember[]; fetchedAt: number } | null {
+  return state.board;
+}
+
+export function setBoard(members: BoardMember[]): void {
+  state = { ...state, board: { members, fetchedAt: Date.now() } };
+  persist();
+  emit();
+}
+
+export function lastPosted(): string {
+  return state.lastPosted;
+}
+
+/**
+ * Remember what was posted without telling anyone.
+ *
+ * This is bookkeeping, not a change to the log: emitting here would redraw
+ * the screen every time a summary went out.
+ */
+export function rememberPosted(body: string): void {
+  state = { ...state, lastPosted: body };
+  if (!storageWorks) return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch {
+    storageWorks = false;
+  }
 }
 
 export function dailyLog(): DailyLog {

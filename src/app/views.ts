@@ -70,6 +70,21 @@ export function renderExercise(root: HTMLElement, key: string): void {
   head.append(heading, star);
   root.append(head);
 
+  // Only worth showing once there is somebody it could be shared with.
+  if (store.crew()) {
+    const hidden = store.isHiddenFromCrew(key);
+    const share = document.createElement('button');
+    share.type = 'button';
+    share.className = hidden ? 'btn btn-ghost btn-danger' : 'btn btn-ghost';
+    share.textContent = hidden ? 'Held back from your crew' : 'Shared with your crew';
+    share.setAttribute('aria-pressed', String(!hidden));
+    share.addEventListener('click', () => {
+      store.toggleHiddenFromCrew(key);
+      renderExercise(root, key);
+    });
+    root.append(share);
+  }
+
   if (entries.length === 0) {
     root.append(message('Nothing logged for this one.'));
     return;

@@ -148,6 +148,24 @@ rather than as sets.
 No browser can write to iCloud Drive on its own, so this is one deliberate tap
 rather than background sync. The app nudges you if a week goes by without one.
 
+## Training with friends
+
+The **Friends** tab is a crew: a link you send, which gives whoever opens it
+this app with their own empty log *and* a place on your board. No accounts,
+no passwords — the link is the credential, like a shared document.
+
+What leaves your phone is a summary: a name you choose, how often you
+trained, this week's daily goals, and each lift with its best set. Your
+pages, notes and sessions stay on the device. Hold a lift back from its own
+page, pause sharing entirely, or leave the crew and your row is deleted.
+
+It is a tab you visit, never something on the home screen. This app's job is
+answering "did I beat last week?", and a leaderboard should not be able to
+shout over that.
+
+Sharing needs the worker in [`worker/`](worker/README.md) deployed; until
+then the tab says so and nothing else changes.
+
 ## Seeing it with history in it
 
 A fresh install comes with sample data: five sessions of each of two splits

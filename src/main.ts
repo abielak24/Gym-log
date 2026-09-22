@@ -12,6 +12,8 @@ import { flushCells, renderTemplate } from './app/grid-view';
 import { renderEditSplit } from './app/edit-split';
 import { renderCalendar } from './app/calendar-view';
 import { flushDaily, renderDailyPage } from './app/daily-view';
+import { renderCrew, renderJoin } from './app/crew-view';
+import { parseJoinLink, postSummary } from './app/crew';
 
 const view = document.getElementById('view') as HTMLElement;
 const tabs = [...document.querySelectorAll<HTMLAnchorElement>('.tab')];
@@ -44,6 +46,15 @@ function route(): void {
     case 'daily':
       renderDailyPage(view, decodeURIComponent(rest));
       break;
+    case 'friends':
+      renderCrew(view);
+      break;
+    case 'join': {
+      const invite = parseJoinLink(decodeURIComponent(rest));
+      if (invite) renderJoin(view, invite.crewId, invite.secret);
+      else renderCrew(view);
+      break;
+    }
     case 'page':
       renderPage(view, decodeURIComponent(rest));
       break;
@@ -57,11 +68,13 @@ function route(): void {
   // Everything that hangs off the home screen keeps the Home tab lit.
   const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', 'page', ''];
   const belongsToCalendar = ['cal', 'daily'];
+  const belongsToFriends = ['friends', 'join'];
   for (const tab of tabs) {
     const target = tab.getAttribute('href')?.replace(/^#\/?/, '') || 'home';
     const on = target === screen
       || (target === 'home' && belongsToHome.includes(screen))
-      || (target === 'cal' && belongsToCalendar.includes(screen));
+      || (target === 'cal' && belongsToCalendar.includes(screen))
+      || (target === 'friends' && belongsToFriends.includes(screen));
     tab.classList.toggle('tab-on', on);
   }
 }
@@ -105,6 +118,16 @@ function registerServiceWorker(): void {
 
 store.load();
 store.pruneEmpty();
+
+/**
+ * Posting is a background nicety: debounced, best-effort, and never in the
+ * way of writing a set. A failure is silent and goes out with the next change.
+ */
+let postTimer: number | undefined;
+function schedulePost(): void {
+  if (postTimer !== undefined) clearTimeout(postTimer);
+  postTimer = window.setTimeout(() => void postSummary(), 3000);
+}
 store.subscribe(() => {
   // Never rebuild a screen while it is being typed into: home saves the
   // daily tracker as you type, and redrawing would take the cursor with it.
@@ -119,7 +142,11 @@ store.subscribe(() => {
   if (location.hash.startsWith('#/home') || location.hash === '#/' || location.hash === '') route();
 });
 
+store.subscribe(schedulePost);
+schedulePost();
+
 window.addEventListener('hashchange', route);
+window.addEventListener('online', () => void postSummary());
 // iOS often kills a backgrounded web app outright, and `pagehide` is the
 // last thing it reliably runs. Anything typed in the last moment saves here.
 function flushEverything(): void {

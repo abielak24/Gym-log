@@ -52,6 +52,18 @@ The two things that genuinely are stored separately are deliberate choices a
 page cannot express — `overrides` (a renamed or reordered split) and
 `starred` (which lifts show in the summary).
 
+## The crew
+
+`worker/` is a Cloudflare Worker with one D1 table, and `src/app/crew.ts` is
+its client. The rules live in `worker/src/handler.ts`, written against a
+`Store` interface so every one of them is tested in an ordinary test run with
+nothing deployed (`tests/worker.test.ts`). `scripts/smoke.mjs` stands up an
+in-memory version of the same three routes and drives two browser contexts
+through inviting, joining, posting and leaving.
+
+Only a summary is ever posted — see `src/core/summary.ts`. If something is
+not in `MemberSummary`, it cannot leave the device, and that is the point.
+
 ## Settled decisions — don't reopen these without being asked
 
 - **Free text, not forms.** No exercise picker, no set-builder UI, no modals.
@@ -120,6 +132,16 @@ page cannot express — `overrides` (a renamed or reordered split) and
   inside it is measured from the grid's own top, not the viewport's — which
   parked the date header permanently on top of the first row. Only the
   horizontal stickiness of the exercise column is real.
+- **Never redraw a screen after the user has left it.** Anything that
+  renders in a `.then()` must check `location.hash` is still what it was
+  when the work started — an in-flight board fetch once painted the Friends
+  tab over the Home screen someone had navigated to.
+- **A render must not trigger the fetch that triggers the render.** The
+  board redraws its own list rather than re-rendering the tab; re-rendering
+  started another fetch, and the tab rebuilt itself forever.
+- **The crew is never in the way.** Posting is debounced and best-effort,
+  failures are silent and retried, and the board shows its last good copy
+  with an "as of" time. Nothing about logging a set may wait on the network.
 - **A focused button is not typing.** The store's subscriber skips a redraw
   while an `input` or `textarea` inside the view has focus; it must not skip
   for a focused button, which is usually the thing that just asked for the

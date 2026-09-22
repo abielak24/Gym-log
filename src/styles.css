@@ -841,3 +841,40 @@ body {
 
 /* A sentence is not a broken set: it is only in the wrong form. */
 .grid-cell-prose { box-shadow: inset 2px 0 0 var(--warn); }
+
+/* Friends ------------------------------------------------------------------ */
+
+.board-list { list-style: none; margin: 18px 0; padding: 0; }
+
+.board-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 13px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.board-name { font-size: 17px; font-weight: 600; }
+.board-when { font-size: 13px; color: var(--ink-dim); text-align: right; }
+.board-stats { grid-column: 1 / -1; font-size: 13px; color: var(--ink-faint); font-family: var(--font-mono); }
+.board-quiet { opacity: 0.5; }
+
+.share-box {
+  margin: 16px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.share-box h2 { margin: 0 0 8px; font-size: 15px; }
+
+.share-link {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+.board-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.board-footer .note { margin: 0; }

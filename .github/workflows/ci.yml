@@ -29,6 +29,11 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: node scripts/smoke.mjs
+      # Pages serves this from /Gym-log/, so the root is not the shape that
+      # actually ships. Relative assets and the worker's scope must survive it.
+      - run: node scripts/smoke.mjs
+        env:
+          BASE_PATH: /Gym-log/
       # The screenshots are the review: look at these rather than the diff.
       - if: always()
         uses: actions/upload-artifact@v4

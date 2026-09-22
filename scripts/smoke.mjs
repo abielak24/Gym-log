@@ -18,6 +18,10 @@ import { chromium } from 'playwright';
 const DIST = new URL('../dist/', import.meta.url).pathname;
 const SHOTS = new URL('../shots/', import.meta.url).pathname;
 const PORT = 4173;
+// GitHub Pages serves a project site from /<repo>/, not from the root, so the
+// relative asset paths and the service worker's scope have to survive a
+// prefix. Set BASE_PATH to test that shape.
+const BASE = (process.env.BASE_PATH ?? '/').replace(/\/*$/, '/');
 
 const TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -26,7 +30,14 @@ const TYPES = {
 
 function serve() {
   const server = createServer(async (request, response) => {
-    const path = normalize(decodeURIComponent(new URL(request.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+    let path = normalize(decodeURIComponent(new URL(request.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+    if (BASE !== '/') {
+      if (!path.startsWith(BASE)) {
+        response.writeHead(404).end('outside the base path');
+        return;
+      }
+      path = path.slice(BASE.length - 1);
+    }
     const file = join(DIST, path === '/' ? 'index.html' : path);
     try {
       const body = await readFile(file);
@@ -62,7 +73,7 @@ const context = await browser.newContext({
 
 const page = await context.newPage();
 page.on('pageerror', (error) => check('no page errors', false, error.message));
-const url = `http://localhost:${PORT}/`;
+const url = `http://localhost:${PORT}${BASE}`;
 
 // --- Today, with last week's sets offered as ghost text --------------------
 await page.goto(url);

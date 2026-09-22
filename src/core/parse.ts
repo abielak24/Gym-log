@@ -16,7 +16,7 @@
  */
 
 import type { ExerciseBlock, LineInfo, Page, SetEntry } from './types';
-import { normalizeName } from './normalize';
+import { headingKey, normalizeName } from './normalize';
 
 const NOTE_PREFIX = /^(?:\/\/|#)\s?/;
 const WEIGHTED = /^(\d+(?:\.\d+)?)\s*(?:lbs?|kgs?)?\s*[xX×]\s*(\d+)\s*(?:\(([^)]*)\))?$/;
@@ -70,11 +70,19 @@ export function parseSetLine(text: string): LineResult {
   const parts = text.split('|').map((p) => p.trim());
 
   if (parts.length > 1) {
+    const results: ColumnResult[] = parts.map((part) =>
+      part ? parseColumn(part) : { ok: false, reason: 'a superset column is empty' },
+    );
+
+    // A line whose every column is not set-shaped at all is not a broken
+    // superset - it is a heading naming both sides, like `Rows | Cable Rows`.
+    if (results.every((result) => !result.ok && result.reason === null)) {
+      return { ok: false, reason: null };
+    }
+
     const columns: SetEntry[] = [];
-    for (const part of parts) {
-      if (!part) return { ok: false, reason: 'a superset column is empty' };
-      const result = parseColumn(part);
-      if (!result.ok) return { ok: false, reason: result.reason ?? `"${part}" is not a set` };
+    for (const [index, result] of results.entries()) {
+      if (!result.ok) return { ok: false, reason: result.reason ?? `"${parts[index]}" is not a set` };
       columns.push(result.entry);
     }
     return { ok: true, columns };
@@ -232,7 +240,7 @@ function newBlock(heading: string, headingLine: number): ExerciseBlock {
 
   return {
     name: heading.trim(),
-    key: normalizeName(names[0]),
+    key: headingKey(heading),
     columnNames: names,
     columnKeys: names.map(normalizeName),
     headingLine,

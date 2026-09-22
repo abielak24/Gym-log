@@ -88,6 +88,14 @@ page cannot express — `overrides` (a renamed or reordered split) and
 - **Ghost text only renders when the cursor's block is the last on the page**,
   because there is nothing below it to collide with. The hint bar covers the
   mid-page case.
+- **Look an exercise up with `headingKey`, never `normalizeName`.** A
+  superset heading names both sides (`Rows | Cable Rows`) and its identity is
+  the first one. Using `normalizeName` on the whole heading yields a key no
+  block has, so the write-back appends a second copy of the row instead of
+  editing it.
+- **Cells save on a debounce, so they must flush on the way out.**
+  `flushCells()` runs on route change, `pagehide` and `visibilitychange`,
+  because iOS kills a backgrounded web app without further warning.
 - **`overflow-x: auto` makes a container scroll on BOTH axes.** `.grid-scroll`
   is therefore a scroll container vertically too, so `position: sticky; top:`
   inside it is measured from the grid's own top, not the viewport's — which
@@ -116,7 +124,8 @@ page cannot express — `overrides` (a renamed or reordered split) and
 | `Dumbbell Incline Press` | an exercise — any line that isn't a set |
 | `95x7` | 95 lb for 7 reps (`X`, spaces and decimals all fine) |
 | `10` | a set at bodyweight: 10 reps |
-| `25x10 \| 20x10` | a superset, split into columns |
+| `Rows \| Cable Rows` | a superset: an exercise naming both sides |
+| `25x10 \| 20x10` | its sets, a column per side |
 | `95x7 (felt heavy)` | a set with a note |
 | `// slept badly` | a note, ignored by history |
 

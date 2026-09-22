@@ -62,6 +62,18 @@ export function normalizeName(raw: string): string {
   return singular.join(' ').trim();
 }
 
+/**
+ * The identity of an exercise heading, which may name both sides of a
+ * superset: `Rows | Cable Rows` is the `Rows` row of the grid, with `Cable
+ * Rows` as its second column.
+ *
+ * Everything that looks an exercise up by name must use this rather than
+ * `normalizeName`, or a superset row will not find its own block.
+ */
+export function headingKey(heading: string): string {
+  return normalizeName(heading.split('|')[0]);
+}
+
 /** How close two names are, 0..1, for "did you mean" suggestions. */
 export function similarity(a: string, b: string): number {
   if (a === b) return 1;

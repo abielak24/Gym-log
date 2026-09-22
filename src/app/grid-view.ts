@@ -24,6 +24,17 @@ import { isoToday } from '../core/serialize';
 const SAVE_DELAY = 400;
 
 /**
+ * Cells save a moment after you stop typing. Closing the app inside that
+ * moment must not cost the set, so every cell with an unsaved change leaves
+ * a way to flush it here, and the page's own teardown calls them.
+ */
+const pending = new Set<() => void>();
+
+export function flushCells(): void {
+  for (const save of [...pending]) save();
+}
+
+/**
  * @param editing a session id to open for editing, rather than today's. A
  *   workout logged in a hurry is rarely complete, and finishing it on the bus
  *   home should not mean retyping it as text.
@@ -201,12 +212,14 @@ function editableCell(sessionId: string, exercise: string, content: GridCell, pr
   const save = () => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
+    pending.delete(save);
     store.saveCell(sessionId, exercise, cell.value.split('\n'));
   };
 
   cell.addEventListener('input', () => {
     resize();
     markUnreadable();
+    pending.add(save);
     if (timer !== undefined) clearTimeout(timer);
     timer = window.setTimeout(save, SAVE_DELAY);
   });

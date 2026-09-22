@@ -31,9 +31,13 @@ sessions under that title contain. Add an exercise mid-workout and it's part
 of that split from then on; stop doing one and it drops off after a few
 sessions. That's how a split actually drifts, and it needs no bookkeeping.
 
-When you want to change one deliberately, **Edit split** renames it, drops an
-exercise, or reorders them — drag the handles, and the grid follows. None of
-that touches your logged pages.
+When you want to change one deliberately, **Edit split** renames it, adds or
+drops an exercise, or reorders them — drag the handles, and the grid follows.
+None of that touches your logged pages.
+
+**Supersets** are one row with two columns. Add an exercise named
+`Rows | Cable Rows` — from the grid or from Edit split — and its sets are
+written the same way: `25x10 | 20x10`. Each side keeps its own history.
 
 **Key lifts** are the ones you star. They gather on the home screen with the
 last time you did them and your best set, whichever split they came from —
@@ -44,6 +48,11 @@ you haven't touched in two weeks says so.
 **The calendar** fills itself in: a day is marked because a page was written
 for it, not because anything was scheduled. Tap a day you trained to open it
 for editing; tap an empty one to add a workout you forgot to write down.
+
+**Nothing is saved by hand.** A cell saves itself a moment after you stop
+typing, and again the instant the app is backgrounded or closed. Grey text
+in a cell is last session's, shown for reference; anything in normal text is
+yours and is already saved.
 
 **Finishing a session later.** A workout logged in a hurry is rarely
 complete. Any column's date can be tapped to open that session for editing,
@@ -68,7 +77,8 @@ follows, written down:
 | `47.5x12` | decimals are fine |
 | `10` | a set at bodyweight: 10 reps |
 | `50x10` under `Dips` | whatever you wrote — added weight, assistance, your call |
-| `25x10 \| 20x10` | a superset: columns split by a pipe |
+| `Rows \| Cable Rows` | a superset: an exercise naming both sides |
+| `25x10 \| 20x10` | its sets: a column per side, split by the same pipe |
 | `95x7 (felt heavy)` | a set with a note attached |
 | `// slept badly` | a note, ignored by history |
 

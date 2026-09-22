@@ -218,9 +218,40 @@ await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
 await page.waitForSelector('.edit-list');
 check('the reorder survived a reload', (await page.locator('.edit-name').allTextContents())[0] === after[0]);
 
+// --- Adding an exercise to a split before it has been done -----------------------
+await page.locator('input[aria-label="Add an exercise to this split"]').fill('Shrugs | Upright Rows');
+await page.locator('.add-exercise .btn-ghost').last().click();
+await page.waitForTimeout(200);
+check('a split can have an exercise added to it', (await page.locator('.edit-name').allTextContents()).includes('Shrugs | Upright Rows'));
+
+await page.goto(`${url}${backHash}`);
+await page.waitForSelector('.grid');
+check('a planned exercise shows as an empty row in the grid', (await page.locator('.grid-name').allTextContents()).includes('Shrugs | Upright Rows'));
+
+const superset = page.locator('textarea[data-exercise="Shrugs | Upright Rows"]');
+await superset.fill('50x15 | 20x12\n50x15 | 20x12');
+await page.waitForTimeout(600);
+await page.reload();
+await page.waitForSelector('.grid');
+const supersetValue = await page.locator('textarea[data-exercise="Shrugs | Upright Rows"]').inputValue();
+check('superset sets save against one row, not two', supersetValue.split('\n').length === 2, supersetValue.replace(/\n/g, '|'));
+check('and the superset row is not duplicated', (await page.locator('.grid-name').allTextContents()).filter((n) => n.startsWith('Shrugs |')).length === 1);
+
+await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
+await page.waitForSelector('.edit-list');
+await page.locator('input[aria-label="Add an exercise to this split"]').fill('Shrugs | Upright Rows');
+await page.locator('.add-exercise .btn-ghost').last().click();
+await page.waitForTimeout(250);
+check('adding one that is already there says so', (await page.locator('.toast').count()) === 1);
+check('and does not add it twice', (await page.locator('.edit-name').allTextContents()).filter((n) => n.startsWith('Shrugs |')).length === 1);
+check('nothing in it is unreadable', (await page.locator('.grid-cell-unreadable').count()) === 0);
+
+await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
+await page.waitForSelector('.edit-list');
+const countBeforeRemoving = await page.locator('.edit-name').count();
 await page.locator('.edit-list li').last().locator('button[aria-label^="Remove"]').click();
 await page.waitForTimeout(150);
-check('an exercise can be removed from the split', (await page.locator('.edit-name').count()) === before.length - 1);
+check('an exercise can be removed from the split', (await page.locator('.edit-name').count()) === countBeforeRemoving - 1);
 check('with a way to put it back', (await page.locator('.btn-chip').count()) === 1);
 await page.screenshot({ path: join(SHOTS, '6-edit.png'), fullPage: true });
 

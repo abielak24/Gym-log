@@ -8,7 +8,7 @@
  */
 
 import { parsePage } from './parse';
-import { normalizeName } from './normalize';
+import { headingKey } from './normalize';
 
 /**
  * Replace everything under `name` with `lines`.
@@ -24,7 +24,7 @@ import { normalizeName } from './normalize';
  */
 export function writeCell(text: string, name: string, lines: string[]): string {
   const page = parsePage(text);
-  const key = normalizeName(name);
+  const key = headingKey(name);
   const all = text.split('\n');
   // A cell holds set lines and nothing else, so blank lines in it are noise.
   const clean = lines.map((line) => line.trim()).filter(Boolean);
@@ -85,7 +85,7 @@ function tidy(lines: string[]): string {
 /** Add an exercise heading with no sets yet, so the grid grows a row for it. */
 export function addExercise(text: string, name: string): string {
   const page = parsePage(text);
-  if (page.exercises.some((block) => block.key === normalizeName(name))) return text;
+  if (page.exercises.some((block) => block.key === headingKey(name))) return text;
 
   const existing = trimTrailingBlanks(text.split('\n'));
   return [...existing, ...(existing.length ? [''] : []), name.trim()].join('\n');

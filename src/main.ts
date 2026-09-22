@@ -8,7 +8,7 @@ import './styles.css';
 import * as store from './app/store';
 import { renderExercise, renderPage, teardown } from './app/views';
 import { renderHome, renderSummary } from './app/home-view';
-import { renderTemplate } from './app/grid-view';
+import { flushCells, renderTemplate } from './app/grid-view';
 import { renderEditSplit } from './app/edit-split';
 import { renderCalendar } from './app/calendar-view';
 
@@ -19,6 +19,7 @@ function route(): void {
   const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [screen, rest] = [hash.split('/')[0], hash.split('/').slice(1).join('/')];
 
+  flushCells();
   teardown();
   window.scrollTo(0, 0);
 
@@ -103,7 +104,18 @@ store.subscribe(() => {
 });
 
 window.addEventListener('hashchange', route);
-window.addEventListener('pagehide', () => teardown());
+// iOS often kills a backgrounded web app outright, and `pagehide` is the
+// last thing it reliably runs. Anything typed in the last moment saves here.
+window.addEventListener('pagehide', () => {
+  flushCells();
+  teardown();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushCells();
+    teardown();
+  }
+});
 trackKeyboard();
 registerServiceWorker();
 route();

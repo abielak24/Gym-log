@@ -8,7 +8,9 @@
  */
 
 import type { Template } from '../core/types';
+import { headingKey } from '../core/normalize';
 import { makeSortable } from './sortable';
+import { toast } from './panels';
 import * as store from './store';
 
 export function renderEditSplit(root: HTMLElement, key: string): void {
@@ -35,6 +37,7 @@ export function renderEditSplit(root: HTMLElement, key: string): void {
   root.append(renameField(template, root));
   root.append(hint);
   root.append(exerciseList(template, root));
+  root.append(addField(template, root));
 
   const done = document.createElement('a');
   done.className = 'btn btn-primary btn-wide';
@@ -70,6 +73,72 @@ function renameField(template: Template, root: HTMLElement): HTMLElement {
   return form;
 }
 
+/**
+ * Add an exercise to the split before it has ever been done.
+ *
+ * Writing one into a workout adds it to the split on its own, but planning
+ * one in advance needs somewhere to say so, and this is it.
+ */
+function addField(template: Template, root: HTMLElement): HTMLElement {
+  const form = document.createElement('form');
+  form.className = 'add-exercise';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'search';
+  input.placeholder = 'Add an exercise';
+  input.autocapitalize = 'words';
+  input.setAttribute('list', 'known-exercises');
+  input.setAttribute('aria-label', 'Add an exercise to this split');
+
+  const known = document.createElement('datalist');
+  known.id = 'known-exercises';
+  for (const name of store.getHistory().displayNames.values()) {
+    const option = document.createElement('option');
+    option.value = name;
+    known.append(option);
+  }
+
+  const add = document.createElement('button');
+  add.type = 'submit';
+  add.className = 'btn btn-ghost';
+  add.textContent = 'Add';
+
+  const note = document.createElement('p');
+  note.className = 'note';
+  note.textContent = 'For a superset, name both sides: Rows | Cable Rows.';
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+
+    const key = headingKey(name);
+    const override = store.overrideFor(template.key);
+
+    // Adding back one that was removed is a change of mind, not a duplicate.
+    if (override?.hidden?.includes(key)) {
+      store.saveOverride(template.key, { hidden: override.hidden.filter((k) => k !== key) });
+    } else if (template.exercises.some((exercise) => exercise.key === key)) {
+      // Silently doing nothing reads as a broken button.
+      toast(`${name} is already in this split.`);
+      input.value = '';
+      return;
+    } else {
+      store.saveOverride(template.key, { extra: [...(override?.extra ?? []), { key, name }] });
+    }
+
+    input.value = '';
+    renderEditSplit(root, template.key);
+  });
+
+  form.append(input, known, add);
+
+  const wrap = document.createElement('div');
+  wrap.append(form, note);
+  return wrap;
+}
+
 function exerciseList(template: Template, root: HTMLElement): HTMLElement {
   const list = document.createElement('ul');
   list.className = 'edit-list';
@@ -89,8 +158,13 @@ function exerciseList(template: Template, root: HTMLElement): HTMLElement {
     name.textContent = exercise.name;
 
     const remove = iconButton('\u00d7', `Remove ${exercise.name} from this split`, () => {
-      const hidden = store.overrideFor(template.key)?.hidden ?? [];
-      store.saveOverride(template.key, { hidden: [...hidden, exercise.key] });
+      const override = store.overrideFor(template.key);
+      store.saveOverride(template.key, {
+        hidden: [...(override?.hidden ?? []), exercise.key],
+        // Drop it from the planned list too, or hiding one that was only
+        // ever planned leaves a name that can never be shown again.
+        extra: (override?.extra ?? []).filter((e) => e.key !== exercise.key),
+      });
       renderEditSplit(root, template.key);
     });
 

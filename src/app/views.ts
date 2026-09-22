@@ -22,22 +22,17 @@ export function teardown(): void {
   closing?.destroy();
 }
 
-export function renderToday(root: HTMLElement): void {
-  const session = store.startToday();
-  store.pruneEmpty(session.id);
-  renderPageEditor(root, session, { heading: 'Today', focus: true });
-}
-
 export function renderPage(root: HTMLElement, id: string): void {
   const session = store.session(id);
   if (!session) {
     root.replaceChildren(message('That page is gone.'));
     return;
   }
-  renderPageEditor(root, session, { heading: friendlyDate(session.date), focus: false });
+  store.pruneEmpty(session.id);
+  renderPageEditor(root, session, { focus: false });
 }
 
-function renderPageEditor(root: HTMLElement, session: Session, options: { heading: string; focus: boolean }): void {
+function renderPageEditor(root: HTMLElement, session: Session, options: { focus: boolean }): void {
   root.replaceChildren();
 
   if (!store.isDurable()) {
@@ -188,7 +183,23 @@ export function renderExercise(root: HTMLElement, key: string): void {
   const heading = document.createElement('h1');
   heading.className = 'exercise-name';
   heading.textContent = name;
-  root.append(heading);
+
+  // Starring is how a lift stays visible when the split around it changes.
+  const star = document.createElement('button');
+  star.type = 'button';
+  star.className = store.isStarred(key) ? 'star star-on' : 'star';
+  star.textContent = store.isStarred(key) ? '\u2605' : '\u2606';
+  star.setAttribute('aria-label', store.isStarred(key) ? `Unstar ${name}` : `Star ${name}`);
+  star.setAttribute('aria-pressed', String(store.isStarred(key)));
+  star.addEventListener('click', () => {
+    store.toggleStar(key);
+    renderExercise(root, key);
+  });
+
+  const head = document.createElement('div');
+  head.className = 'exercise-head';
+  head.append(heading, star);
+  root.append(head);
 
   if (entries.length === 0) {
     root.append(message('Nothing logged for this one.'));

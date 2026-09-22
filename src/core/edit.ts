@@ -1,0 +1,106 @@
+/**
+ * Writing one cell of the grid back into a page.
+ *
+ * The page text stays the source of truth, so editing a cell means editing
+ * the lines under one exercise heading and leaving every other character of
+ * the page alone — including the lines the parser could not read, which are
+ * somebody's notes and are not ours to tidy away.
+ */
+
+import { parsePage } from './parse';
+import { normalizeName } from './normalize';
+
+/**
+ * Replace the set lines under `name` with `lines`.
+ *
+ * An exercise the page does not have yet is appended with its heading. Empty
+ * `lines` removes the block entirely, so clearing a cell clears the exercise
+ * rather than leaving a heading with nothing under it.
+ */
+export function writeCell(text: string, name: string, lines: string[]): string {
+  const page = parsePage(text);
+  const key = normalizeName(name);
+  const all = text.split('\n');
+  // A cell holds set lines and nothing else, so blank lines in it are noise.
+  const clean = lines.map((line) => line.trim()).filter(Boolean);
+
+  const index = page.exercises.findIndex((block) => block.key === key);
+
+  if (index === -1) {
+    if (clean.length === 0) return text;
+    const body = [name.trim(), ...clean];
+    const existing = trimTrailingBlanks(all);
+    return [...existing, ...(existing.length ? [''] : []), ...body].join('\n');
+  }
+
+  const block = page.exercises[index];
+  const next = page.exercises[index + 1];
+  const end = next ? next.headingLine : all.length;
+
+  const before = all.slice(0, block.headingLine);
+  const after = all.slice(end);
+
+  if (clean.length === 0) {
+    return tidy([...trimTrailingBlanks(before), ...(after.length ? [''] : []), ...dropLeadingBlanks(after)]);
+  }
+
+  const heading = all[block.headingLine];
+  const kept = keepUnreadableLines(page, block.headingLine, end, all);
+
+  return tidy([
+    ...before,
+    heading,
+    ...clean,
+    ...kept,
+    ...(after.length ? [''] : []),
+    ...dropLeadingBlanks(after),
+  ]);
+}
+
+/**
+ * Notes and unreadable lines under an exercise survive an edit to its sets.
+ *
+ * Someone wrote `// shoulder felt tight` under this heading on purpose, and
+ * replacing the numbers above it is no reason to throw that away. They
+ * collect below the sets rather than keeping their original position, which
+ * is the one liberty taken here.
+ */
+function keepUnreadableLines(page: ReturnType<typeof parsePage>, from: number, to: number, all: string[]): string[] {
+  const kept: string[] = [];
+  for (let i = from + 1; i < to; i++) {
+    const info = page.lines[i];
+    if (info && (info.kind === 'note' || info.kind === 'flagged')) kept.push(all[i]);
+  }
+  return kept;
+}
+
+function trimTrailingBlanks(lines: string[]): string[] {
+  const copy = [...lines];
+  while (copy.length && copy[copy.length - 1].trim() === '') copy.pop();
+  return copy;
+}
+
+function dropLeadingBlanks(lines: string[]): string[] {
+  let start = 0;
+  while (start < lines.length && lines[start].trim() === '') start += 1;
+  return lines.slice(start);
+}
+
+/** Collapse any run of blank lines to one. Two blank lines mean nothing extra. */
+function tidy(lines: string[]): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.trim() === '' && out.length > 0 && out[out.length - 1].trim() === '') continue;
+    out.push(line);
+  }
+  return trimTrailingBlanks(out).join('\n');
+}
+
+/** Add an exercise heading with no sets yet, so the grid grows a row for it. */
+export function addExercise(text: string, name: string): string {
+  const page = parsePage(text);
+  if (page.exercises.some((block) => block.key === normalizeName(name))) return text;
+
+  const existing = trimTrailingBlanks(text.split('\n'));
+  return [...existing, ...(existing.length ? [''] : []), name.trim()].join('\n');
+}

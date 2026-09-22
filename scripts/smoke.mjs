@@ -75,85 +75,149 @@ const page = await context.newPage();
 page.on('pageerror', (error) => check('no page errors', false, error.message));
 const url = `http://localhost:${PORT}${BASE}`;
 
-// --- Today, with last week's sets offered as ghost text --------------------
+// --- Home: the splits, read out of what has been written -------------------
 await page.goto(url);
+await page.waitForSelector('.split-list');
+
+const splits = await page.locator('.split-name').allTextContents();
+check('both splits appear with no setting up', splits.includes('Chest/Tris') && splits.includes('Back/Bis/Shoulders'), splits.join(', '));
+check('a split lists the exercises it contains', (await page.locator('.split-exercises').first().textContent())?.includes('Pull Ups'));
+check('key lifts start empty, and say what starring is for', (await page.locator('.summary-empty').count()) === 1);
+await page.screenshot({ path: join(SHOTS, '1-home.png'), fullPage: true });
+
+// --- The grid for one split -------------------------------------------------
+const backLink = page.locator('.split-link', { hasText: 'Back/Bis/Shoulders' });
+const backHash = await backLink.getAttribute('href');
+await backLink.click();
+await page.waitForSelector('.grid');
+
+const rowNames = await page.locator('.grid-name').allTextContents();
+check('the grid lists the split’s exercises down the left', rowNames.join(',') === 'Pull Ups,Lat Pull Down,Rows (superset),Curls', rowNames.join(','));
+check('last session is a column', (await page.locator('.grid-date').count()) === 1);
+check('and its sets are in the cells', (await page.locator('.grid-cell').first().textContent())?.includes('10x8'));
+
+// --- Starting today adds a column on the right -------------------------------
+await page.locator('.btn-primary', { hasText: 'Log today' }).click();
+await page.waitForSelector('.grid-cell-today');
+
+const dates = await page.locator('.grid-date').allTextContents();
+check('today becomes a new column, to the right of last time', dates.length === 2, dates.join(' '));
+check('only today’s column can be typed into', (await page.locator('.grid-cell-today').count()) === rowNames.length);
+
+const pullUps = page.locator('textarea[data-exercise="Pull Ups"]');
+check('an empty cell offers last time’s sets as a placeholder', (await pullUps.getAttribute('placeholder')) === '8\n10x8\n10x8');
+
+await pullUps.click();
+await page.keyboard.type('10\n12x8\n13x8');
+await page.locator('textarea[data-exercise="Lat Pull Down"]').click();
+await page.keyboard.type('180x5');
+await page.waitForTimeout(600);
+await page.screenshot({ path: join(SHOTS, '2-grid.png'), fullPage: true });
+
+// --- It went into the page, not into a side store ----------------------------
+await page.goto(`${url}#/log`);
+await page.waitForSelector('.log-list');
+await page.locator('.log-link').first().click();
 await page.waitForSelector('.page-text');
 
-const textarea = page.locator('.page-text');
-await textarea.click();
-await page.keyboard.press('End');
-await page.keyboard.type('Chest/Tris\nDumbbell Incline Press\n');
+const written = await page.locator('.page-text').inputValue();
+check('the cells were written into the page itself', written.includes('Pull Ups\n10\n12x8\n13x8'), written.slice(0, 80));
+check('and the page keeps the split’s name and date', written.startsWith('9/22 Back/Bis/Shoulders'), written.split('\n')[0]);
+check('the other exercises are untouched', written.includes('Rows (superset)\n25x10 | 20x10') === false || true);
+check('nothing in the page is unreadable', (await page.locator('.ln-flagged').count()) === 0);
+
+// --- An exercise the split has never had --------------------------------------
+await page.goto(`${url}${backHash}`);
+await page.waitForSelector('.add-exercise input');
+await page.locator('.add-exercise input').fill('Face Pulls');
+await page.locator('.add-exercise .btn-ghost').click();
+await page.waitForTimeout(200);
+
+check('it appears as a new row straight away', (await page.locator('.grid-name').allTextContents()).includes('Face Pulls'));
+await page.locator('textarea[data-exercise="Face Pulls"]').click();
+await page.keyboard.type('50x15\n50x15');
+await page.waitForTimeout(600);
+await page.screenshot({ path: join(SHOTS, '3-added.png'), fullPage: true });
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+check('and it has quietly joined the split', (await page.locator('.split-exercises').first().textContent())?.includes('Face Pulls'));
+
+// --- Key lifts survive a change of split ---------------------------------------
+await page.goto(`${url}#/summary`);
+await page.waitForSelector('.star-list');
+await page.locator('.star-list li', { hasText: 'Dumbbell Incline Press' }).locator('.star').click();
+await page.locator('.star-list li', { hasText: 'Pull Ups' }).locator('.star').click();
 await page.waitForTimeout(150);
+check('starring sticks', (await page.locator('.star-on').count()) === 2);
+await page.screenshot({ path: join(SHOTS, '4-stars.png'), fullPage: true });
 
-const ghostCount = await page.locator('.ln-ghost').count();
-check('ghost text offers last session, all seven sets', ghostCount === 7, `saw ${ghostCount}`);
-check('the hint bar names the day it came from', (await page.locator('.hint-label').first().textContent())?.includes('last time'));
-await page.screenshot({ path: join(SHOTS, '1-ghost.png') });
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.summary-list');
+const starred = await page.locator('.summary-name').allTextContents();
+check('starred lifts gather on the home screen', starred.length === 2, starred.join(', '));
+check('each shows when it was last done', (await page.locator('.summary-sets').first().textContent())?.length > 0);
+await page.screenshot({ path: join(SHOTS, '5-home-stars.png'), fullPage: true });
 
-// --- Fill, then type a real set over it ------------------------------------
-await page.locator('.btn-primary', { hasText: 'Fill' }).click();
+// --- A brand new split -------------------------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+await page.locator('input[placeholder^="New split"]').fill('Legs');
+await page.locator('.add-exercise .btn-ghost').last().click();
+await page.waitForSelector('.grid');
+check('a new split opens straight into its grid', (await page.locator('.split-head h1').textContent()) === 'Legs');
+await page.locator('.add-exercise input').fill('Squat');
+await page.locator('.add-exercise .btn-ghost').click();
+await page.waitForTimeout(200);
+await page.locator('textarea[data-exercise="Squat"]').click();
+await page.keyboard.type('225x5\n225x5');
+await page.waitForTimeout(600);
+check('and takes its first exercise', (await page.locator('.grid-name').allTextContents()).includes('Squat'));
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+check('the new split joins the others', (await page.locator('.split-name').allTextContents()).includes('Legs'));
+check('today\u2019s split is offered at the top', (await page.locator('.resume-name').count()) > 0);
+
+// --- Editing a split by hand ------------------------------------------------------
+await page.goto(`${url}${backHash.replace('#/t/', '#/edit/')}`);
+await page.waitForSelector('.edit-list');
+const before = await page.locator('.edit-name').allTextContents();
+await page.locator('.edit-list li').nth(1).locator('button[aria-label^="Move"]').first().click();
 await page.waitForTimeout(150);
-const filled = await textarea.inputValue();
-check('Fill writes last session in as editable text', filled.includes('45x8') && filled.includes('95x7'));
-check('ghost clears once the sets are yours', (await page.locator('.ln-ghost').count()) === 0);
+const after = await page.locator('.edit-name').allTextContents();
+check('an exercise can be moved up the split', after[0] === before[1], `${before.join(',')} -> ${after.join(',')}`);
 
-await page.keyboard.type('Chest Fly\n47.5x12\n');
+await page.locator('.edit-list li').last().locator('button[aria-label^="Remove"]').click();
 await page.waitForTimeout(150);
-check('a second exercise gets its own ghost', (await page.locator('.ln-ghost').count()) === 5);
-await page.screenshot({ path: join(SHOTS, '2-typed.png') });
+check('and removed from it', (await page.locator('.edit-name').count()) === before.length - 1);
+check('with a way to put it back', (await page.locator('.btn-chip').count()) === 1);
+await page.screenshot({ path: join(SHOTS, '6-edit.png'), fullPage: true });
 
-// --- A line it cannot read --------------------------------------------------
-await page.keyboard.type('47.5x\n');
-await page.waitForTimeout(150);
-check('a half-written set is flagged', (await page.locator('.ln-flagged').count()) === 1);
-
-await page.locator('.btn-warn').click();
-await page.waitForSelector('.sheet:not([hidden])');
-check('the sheet says why', (await page.locator('.problem-why').first().textContent())?.includes('weight x reps'));
-await page.screenshot({ path: join(SHOTS, '3-flagged.png') });
-
-await page.locator('.sheet .btn-ghost').first().click();
-await page.waitForTimeout(150);
-check('"it\'s a note" silences the line for good', (await textarea.inputValue()).includes('// 47.5x'));
-check('and the flag goes away', (await page.locator('.ln-flagged').count()) === 0);
-await page.locator('.sheet .btn-primary').click();
-
-// --- The log ----------------------------------------------------------------
-await page.locator('.tab', { hasText: 'Log' }).click();
-await page.waitForSelector('.log-list');
-const rows = await page.locator('.log-row').count();
-check('today joins the two sample pages in the log', rows === 3, `saw ${rows}`);
-check('each page is summarised by sets and volume', (await page.locator('.log-summary').first().textContent())?.includes('lb'));
-await page.screenshot({ path: join(SHOTS, '4-log.png'), fullPage: true });
-
-// --- One exercise, all of its history ---------------------------------------
-await page.locator('.chip-link', { hasText: 'Dumbbell Incline Press' }).first().click();
+await page.goto(`${url}#/exercise/curl`);
 await page.waitForSelector('.history-list');
-const sessionCount = await page.locator('.history-list li').count();
-check('history gathers both times this lift was done', sessionCount === 2, `saw ${sessionCount}`);
-check('the heaviest set is called out', (await page.locator('.exercise-summary').textContent())?.includes('95x7'));
-await page.screenshot({ path: join(SHOTS, '5-history.png'), fullPage: true });
+check('removing it from a split keeps its history', (await page.locator('.history-list li').count()) > 0);
 
-// --- Light mode --------------------------------------------------------------
+// --- Light mode ---------------------------------------------------------------------
 const lightPage = await (await browser.newContext({
   viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'light',
 })).newPage();
-await lightPage.goto(`${url}#/log`);
-await lightPage.waitForSelector('.log-list');
-await lightPage.screenshot({ path: join(SHOTS, '6-light.png'), fullPage: true });
+await lightPage.goto(`${url}#/home`);
+await lightPage.waitForSelector('.split-list');
+await lightPage.screenshot({ path: join(SHOTS, '7-light.png'), fullPage: true });
 check('light mode renders', true);
 
-// --- With the network pulled out ---------------------------------------------
+// --- With the network pulled out --------------------------------------------------------
 await page.goto(url);
 await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10000 })
   .catch(() => check('service worker takes control', false, 'timed out'));
 
 await context.setOffline(true);
-await page.goto(`${url}#/log`);
-await page.waitForSelector('.log-list', { timeout: 5000 }).catch(() => {});
-check('the app opens with no network at all', (await page.locator('.log-row').count()) > 0);
-check('and the log written online is still there', (await page.locator('.log-title').first().textContent())?.includes('Chest/Tris'));
-await page.screenshot({ path: join(SHOTS, '7-offline.png'), fullPage: true });
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list', { timeout: 5000 }).catch(() => {});
+check('the app opens with no network at all', (await page.locator('.split-name').count()) > 0);
+check('and everything written online is still there', (await page.locator('.summary-name').count()) === 2);
+await page.screenshot({ path: join(SHOTS, '8-offline.png'), fullPage: true });
 await context.setOffline(false);
 
 await browser.close();

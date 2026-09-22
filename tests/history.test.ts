@@ -111,3 +111,16 @@ describe('summaries', () => {
     expect(volume).toBeGreaterThan(0);
   });
 });
+
+describe('singular and plural spellings of the same lift', () => {
+  it('folds the short ones too', () => {
+    expect(normalizeName('Pull Ups')).toBe(normalizeName('Pull Up'));
+    expect(normalizeName('Dips')).toBe(normalizeName('Dip'));
+    expect(normalizeName('Rows')).toBe(normalizeName('Row'));
+  });
+
+  it('still keeps words that merely end in s', () => {
+    expect(normalizeName('Press')).toBe('press');
+    expect(normalizeName('Leg Press')).not.toBe(normalizeName('Leg Pres'));
+  });
+});

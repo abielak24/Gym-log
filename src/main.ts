@@ -6,13 +6,16 @@
 
 import './styles.css';
 import * as store from './app/store';
-import { renderExercise, renderLog, renderPage, renderToday, teardown } from './app/views';
+import { renderExercise, renderLog, renderPage, teardown } from './app/views';
+import { renderHome, renderSummary } from './app/home-view';
+import { renderTemplate } from './app/grid-view';
+import { renderEditSplit } from './app/edit-split';
 
 const view = document.getElementById('view') as HTMLElement;
 const tabs = [...document.querySelectorAll<HTMLAnchorElement>('.tab')];
 
 function route(): void {
-  const hash = location.hash.replace(/^#\/?/, '') || 'today';
+  const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [screen, rest] = [hash.split('/')[0], hash.split('/').slice(1).join('/')];
 
   teardown();
@@ -22,6 +25,15 @@ function route(): void {
     case 'log':
       renderLog(view);
       break;
+    case 't':
+      renderTemplate(view, decodeURIComponent(rest));
+      break;
+    case 'edit':
+      renderEditSplit(view, decodeURIComponent(rest));
+      break;
+    case 'summary':
+      renderSummary(view);
+      break;
     case 'page':
       renderPage(view, decodeURIComponent(rest));
       break;
@@ -29,12 +41,15 @@ function route(): void {
       renderExercise(view, decodeURIComponent(rest));
       break;
     default:
-      renderToday(view);
+      renderHome(view);
   }
 
+  // Everything that hangs off the home screen keeps the Home tab lit.
+  const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', ''];
   for (const tab of tabs) {
-    const target = tab.getAttribute('href')?.replace(/^#\/?/, '') ?? '';
-    tab.classList.toggle('tab-on', target === screen || (screen === 'page' && target === 'log'));
+    const target = tab.getAttribute('href')?.replace(/^#\/?/, '') || 'home';
+    const on = target === screen || (target === 'home' && belongsToHome.includes(screen));
+    tab.classList.toggle('tab-on', on);
   }
 }
 
@@ -78,7 +93,8 @@ function registerServiceWorker(): void {
 store.load();
 store.pruneEmpty();
 store.subscribe(() => {
-  // Only the log reflects other screens' edits; the editor owns its own text.
+  // Screens that own an input - the page editor, the grid's cells - must not
+  // be rebuilt underneath the cursor. The rest can redraw freely.
   if (location.hash.startsWith('#/log')) route();
 });
 

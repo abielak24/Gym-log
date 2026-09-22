@@ -3,32 +3,50 @@
 A workout log that works like the paper one, except it remembers what you
 lifted last time.
 
-Open it, type `95x7`, put the phone down. No fields, no exercise picker, no
-modal asking which muscle group you are targeting. One page per day, written
-in the order you did it, in the notation you already use.
+Each split is a grid: exercises down the left, one dated column per session,
+oldest to newest. Today's column is the one on the right, and it's the only
+one you can type into — so logging a set is a tap and a few characters, with
+last week's numbers sitting right beside them.
 
 It runs entirely on your phone. No account, no server, no signal needed.
 
 ```
-9/22 Chest/Tris
-Dumbbell Incline Press
-45x8
-45x8
-70x8
-80x8
-90x8
-95x7
-70x8
+                9/8      9/15     9/22
+Pull Ups        8        8        10
+                10x8     10x8     12x8
+                10x8     10x8     13x8
 
-Chest Fly
-47.5x12
-47.5x12
-35x12
+Lat Pull Down   170x6    170x6    180x5
+                170x8    170x8
 ```
+
+## How it's organised
+
+**Home** lists your splits and your key lifts.
+
+**Splits** are not set up — they're read out of what you've written. Every
+page title you've used is a split, and its exercises are whatever the recent
+sessions under that title contain. Add an exercise mid-workout and it's part
+of that split from then on; stop doing one and it drops off after a few
+sessions. That's how a split actually drifts, and it needs no bookkeeping.
+
+When you want to change one deliberately, **Edit split** renames it, reorders
+the exercises, or drops one. None of that touches your logged pages.
+
+**Key lifts** are the ones you star. They gather on the home screen with the
+last time you did them and your best set, whichever split they came from —
+so when you reshuffle your training, the lifts you actually care about don't
+quietly vanish along with the split that used to contain them. A starred lift
+you haven't touched in two weeks says so.
+
+**The page** is still there behind the grid. Every cell you type writes
+straight into a plain-text page for that day, and you can open it from the
+**Log** tab and edit it as text whenever the grid is the wrong shape for what
+happened.
 
 ## The format
 
-There is no format to learn. These are the rules your notebook already
+There's no format to learn. These are the rules your notebook already
 follows, written down:
 
 | You write | It reads as |
@@ -43,24 +61,23 @@ follows, written down:
 | `95x7 (felt heavy)` | a set with a note attached |
 | `// slept badly` | a note, ignored by history |
 
-Spaces around the `x` don't matter, and `X` works too. Blank lines between
-exercises are optional.
+Spaces around the `x` don't matter, and `X` works too. The page title is what
+puts a session in a split, which is the whole of the bookkeeping.
 
 ## What it does that paper can't
 
-**It shows you last time.** Type an exercise name and last session's sets
-appear in grey underneath the cursor. Keep typing and they peel away one by
-one as you replace them; press Tab, or the **Fill** button, to accept the rest
-as a starting point. Names are matched loosely, so `DB Incline Press` and
-`Dumbbell Incline Press` are the same exercise and share one history.
+**It shows you last time, twice over.** In the grid, last session is the
+column next to the one you're filling in. In an empty cell, its sets appear
+as a placeholder. And in the text page, they appear in grey under the cursor.
+Names are matched loosely, so `DB Incline Press` and `Dumbbell Incline Press`
+are one exercise with one history.
 
 **It tells you when it didn't understand.** A line it can't read gets a red
 wave under it and stays exactly as you typed it — nothing is ever silently
-reinterpreted into a number you didn't mean. Tap the counter in the bottom bar
-to see what confused it. If the line was deliberate, **It's a note** prefixes
-it with `//` and it stops asking.
+reinterpreted into a number you didn't mean. If the line was deliberate,
+**It's a note** prefixes it with `//` and it stops asking.
 
-**It keeps every session of every lift.** Tap any exercise name in the log.
+**It keeps every session of every lift.** Tap any exercise name.
 
 ## Backing up
 
@@ -87,23 +104,24 @@ installed. Lifting regularly keeps it alive either way — back up anyway.
 
 ```sh
 npm install
-npm run dev       # development server
-npm test          # 65 unit tests over the parser, history and export
-npm run build     # production build into dist/
+npm run dev              # development server
+npm test                 # unit tests over the parser, splits, grid and export
+npm run build            # production build into dist/
 node scripts/smoke.mjs   # drives the built app in a real browser, writes shots/
+BASE_PATH=/Gym-log/ node scripts/smoke.mjs   # as GitHub Pages serves it
 ```
 
 `src/core/` is plain TypeScript with no browser imports: the format, the
-history index, and the export live there and are covered by the unit tests.
-`src/app/` is the only part that touches the DOM. That split is deliberate —
-if this ever becomes a native app, `core/` moves across untouched.
+splits, the grid, the history index and the export live there and are covered
+by the unit tests. `src/app/` is the only part that touches the DOM. That
+split is deliberate — if this ever becomes a native app, `core/` moves across
+untouched.
 
 ## What it deliberately doesn't do
 
 No charts, no estimated 1RM, no rest timer, no plate calculator, no streaks,
-no sync, no accounts. Supersets are stored faithfully but shown as text rather
-than as two columns. Each of those is a real feature, and each one is a reason
-to look at your phone for longer between sets.
+no sync, no accounts. Each of those is a real feature, and each one is a
+reason to look at your phone for longer between sets.
 
 ## Known limits
 
@@ -115,4 +133,6 @@ to look at your phone for longer between sets.
 - **Weight is just a number.** `50x10` under `Dips` could be 50 lb added or 50
   lb of assistance. The app records what you wrote and doesn't guess, which
   means it also can't total those sets correctly in volume.
+- **One split per page title.** Two splits with the same name are one split.
+  Rename one if you want them apart.
 - **lb only.** Nothing converts units; the numbers are whatever you typed.

@@ -6,11 +6,14 @@
  * is the only copy that survives a lost phone, so the app nags about it.
  */
 
-import type { Session } from '../core/types';
+import type { Session, Template, TemplateOverride } from '../core/types';
 import { buildHistory, type History } from '../core/history';
 import { parsePage } from '../core/parse';
 import { isoToday, newSessionId } from '../core/serialize';
 import { createSamples } from '../core/sample';
+import { buildTemplates } from '../core/templates';
+import { writeCell } from '../core/edit';
+import { normalizeName } from '../core/normalize';
 
 const KEY = 'gym-notebook:v1';
 
@@ -19,12 +22,24 @@ interface Stored {
   sessions: Session[];
   lastBackupAt: number | null;
   samplesCleared: boolean;
+  /** Deliberate edits to the splits the log derives on its own. */
+  overrides: TemplateOverride[];
+  /** Exercise keys pinned to the summary. */
+  starred: string[];
 }
 
-const EMPTY: Stored = { version: 1, sessions: [], lastBackupAt: null, samplesCleared: false };
+const EMPTY: Stored = {
+  version: 1,
+  sessions: [],
+  lastBackupAt: null,
+  samplesCleared: false,
+  overrides: [],
+  starred: [],
+};
 
 let state: Stored = EMPTY;
 let history: History | null = null;
+let templates: Template[] | null = null;
 let storageWorks = true;
 const listeners = new Set<() => void>();
 
@@ -43,6 +58,7 @@ export function load(today = new Date()): void {
     persist();
   }
   history = null;
+  templates = null;
 }
 
 /** False when the browser refused us storage — the UI warns instead of pretending. */
@@ -52,6 +68,7 @@ export function isDurable(): boolean {
 
 function persist(): void {
   history = null;
+  templates = null;
   if (!storageWorks) return;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
@@ -83,6 +100,82 @@ export function getHistory(): History {
   return history;
 }
 
+export function getTemplates(): Template[] {
+  if (!templates) templates = buildTemplates(state.sessions, state.overrides);
+  return templates;
+}
+
+export function getTemplate(key: string): Template | undefined {
+  return getTemplates().find((t) => t.key === key);
+}
+
+/**
+ * Today's page for a split, started if it does not exist.
+ *
+ * The page title is what puts a session in a split, so writing the split's
+ * name into the header is all the bookkeeping there is.
+ */
+export function startTemplateSession(name: string, today = new Date()): Session {
+  const date = isoToday(today);
+  const key = normalizeName(name);
+
+  const existing = state.sessions.find((s) => s.date === date && normalizeName(parsePage(s.text).title) === key);
+  if (existing) return existing;
+
+  const created: Session = {
+    id: newSessionId(date, state.sessions),
+    date,
+    text: `${today.getMonth() + 1}/${today.getDate()} ${name}`,
+    updatedAt: Date.now(),
+  };
+  state = { ...state, sessions: [created, ...state.sessions] };
+  persist();
+  emit();
+  return created;
+}
+
+/** Write one cell of the grid back into its page. */
+export function saveCell(sessionId: string, exercise: string, lines: string[]): void {
+  const session = state.sessions.find((s) => s.id === sessionId);
+  if (!session) return;
+
+  const text = writeCell(session.text, exercise, lines);
+  if (text === session.text) return;
+  saveText(sessionId, text, parsePage(text).date);
+}
+
+export function overrideFor(key: string): TemplateOverride | undefined {
+  return state.overrides.find((o) => o.key === key);
+}
+
+export function saveOverride(key: string, patch: Partial<TemplateOverride>): void {
+  const existing = overrideFor(key);
+  const merged: TemplateOverride = { ...(existing ?? { key }), ...patch, key };
+  state = {
+    ...state,
+    overrides: [...state.overrides.filter((o) => o.key !== key), merged],
+  };
+  persist();
+  emit();
+}
+
+export function starredKeys(): string[] {
+  return state.starred;
+}
+
+export function isStarred(key: string): boolean {
+  return state.starred.includes(key);
+}
+
+export function toggleStar(key: string): void {
+  const starred = state.starred.includes(key)
+    ? state.starred.filter((k) => k !== key)
+    : [...state.starred, key];
+  state = { ...state, starred };
+  persist();
+  emit();
+}
+
 export function hasSamples(): boolean {
   return state.sessions.some((s) => s.sample);
 }
@@ -91,25 +184,6 @@ export function hasSamples(): boolean {
 export function todaySession(today = new Date()): Session | null {
   const date = isoToday(today);
   return state.sessions.find((s) => s.date === date && !s.id.includes('#')) ?? null;
-}
-
-export function startToday(today = new Date()): Session {
-  const existing = todaySession(today);
-  if (existing) return existing;
-
-  const date = isoToday(today);
-  const created: Session = {
-    id: newSessionId(date, state.sessions),
-    date,
-    // Date first and a trailing space, so the cursor lands where the day's
-    // name goes: `9/22 Chest/Tris`.
-    text: `${today.getMonth() + 1}/${today.getDate()} `,
-    updatedAt: Date.now(),
-  };
-  state = { ...state, sessions: [created, ...state.sessions] };
-  persist();
-  emit();
-  return created;
 }
 
 /**

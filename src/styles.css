@@ -362,3 +362,253 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Home ------------------------------------------------------------------- */
+
+:root { --topbar-h: calc(env(safe-area-inset-top) + 44px); }
+
+.section-title {
+  margin: 26px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.note { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--ink-dim); }
+
+.resume {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 13px 15px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.resume-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.resume-name { font-size: 17px; font-weight: 600; }
+
+.split-list { list-style: none; margin: 0; padding: 0; }
+
+.split-list li { border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent); }
+
+.split-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 13px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.split-name { font-size: 17px; font-weight: 600; }
+.split-last { font-size: 13px; color: var(--ink-dim); text-align: right; }
+
+.split-exercises {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-exercise { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.add-exercise .search { margin: 0; flex: 1; }
+
+/* The grid ---------------------------------------------------------------- */
+
+.split-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 4px;
+}
+
+.split-head h1 { margin: 0; font-size: 22px; }
+.split-when { margin: 2px 0 0; font-size: 13px; color: var(--ink-dim); }
+
+.grid-scroll {
+  margin: 14px calc(var(--pad) * -1) 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/*
+ * Widths are chosen so the exercise column plus two sessions fit a phone
+ * screen: today and the one you are trying to beat, with no scrolling.
+ */
+.grid {
+  display: grid;
+  grid-template-columns: 128px repeat(var(--columns), 126px);
+  min-width: max-content;
+  align-items: stretch;
+}
+
+.grid > * {
+  /* Focusing a cell scrolls it into view, and without this it lands
+     underneath the sticky date row, which then swallows the next tap. */
+  scroll-margin-top: calc(var(--topbar-h) + 52px);
+  scroll-margin-bottom: calc(var(--bar-height) + 24px);
+  padding: 9px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* The exercise column stays put while the sessions scroll past it. */
+.grid-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding-left: 12px;
+  background: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  border-right: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+/*
+ * The date row is NOT sticky vertically. `.grid-scroll` has overflow-x: auto,
+ * which makes it a scroll container on both axes, so `top:` here would be
+ * measured from the grid's own top rather than the viewport's - parking the
+ * header permanently on top of the first row. Only the horizontal stickiness
+ * of the exercise column is real, and that works.
+ */
+.grid-corner,
+.grid-date {
+  z-index: 3;
+  background: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+}
+
+.grid-corner { position: sticky; left: 0; z-index: 4; padding-left: 12px; }
+.grid-date-today { color: var(--accent); }
+
+.grid-cell {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--ink-dim);
+}
+
+/* The session you are comparing against sits next to today's column. */
+.grid-cell-previous { color: var(--ink); background: color-mix(in srgb, var(--ink) 4%, transparent); }
+
+.grid-cell-today {
+  width: 100%;
+  min-height: calc(14px * 1.5 + 18px);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--ink);
+  caret-color: var(--accent);
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  border-radius: 0;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.grid-cell-today:focus { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.grid-cell-today::placeholder { color: var(--ink-faint); }
+
+.start-row { margin: 18px 0; }
+.btn-wide { display: block; width: 100%; text-align: center; padding: 14px; font-size: 16px; text-decoration: none; }
+
+/* Key lifts --------------------------------------------------------------- */
+
+.summary-list, .star-list { list-style: none; margin: 0 0 12px; padding: 0; }
+
+.summary-row { border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent); }
+
+.summary-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 12px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.summary-name { font-size: 16px; font-weight: 600; }
+.summary-when { font-size: 13px; color: var(--ink-dim); text-align: right; }
+.summary-sets { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 14px; color: var(--ink-dim); }
+.summary-best { grid-column: 1 / -1; font-size: 12px; color: var(--ink-faint); }
+
+.summary-stale {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.summary-empty { padding: 4px 0 8px; }
+
+.star-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.star {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.star-on { color: var(--warn); }
+.star-name { flex: 1; color: var(--ink); font-size: 15px; text-decoration: none; }
+.star-when { font-size: 12px; color: var(--ink-faint); }
+
+.exercise-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.exercise-head .exercise-name { margin-bottom: 4px; }
+
+/* Editing a split --------------------------------------------------------- */
+
+.edit-list { list-style: none; margin: 14px 0; padding: 0; }
+
+.edit-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.edit-name { flex: 1; font-size: 15px; }
+
+.btn-icon { width: 40px; padding: 8px 0; text-align: center; font-size: 16px; }
+.btn-icon:disabled { opacity: 0.3; }

@@ -72,3 +72,35 @@ export interface Session {
   /** Seeded example pages, which can be cleared in one tap. */
   sample?: boolean;
 }
+
+/**
+ * A split, as it looks lately.
+ *
+ * Templates are not set up; they are read out of what has been written.
+ * Every distinct page title is a split, and its exercise list is whatever
+ * the recent sessions under that title contain — so a split that drifts,
+ * drifts, and one that gains an exercise gains it without being told.
+ */
+export interface Template {
+  key: string;
+  name: string;
+  exercises: Array<{ key: string; name: string }>;
+  /** Session ids under this split, newest first. */
+  sessionIds: string[];
+  lastDate: string | null;
+}
+
+/** The deliberate edits laid over a derived template. */
+export interface TemplateOverride {
+  key: string;
+  /** A renamed split. Sessions keep their own titles; this is the display name. */
+  name?: string;
+  /** Exercise keys in a chosen order. Anything not listed keeps its derived place. */
+  order?: string[];
+  /** Exercises taken out of the split. Their history is untouched. */
+  hidden?: string[];
+  /** Exercises added to the split before they have ever been logged. */
+  extra?: Array<{ key: string; name: string }>;
+  /** A split created from scratch, which exists before any session uses it. */
+  created?: boolean;
+}

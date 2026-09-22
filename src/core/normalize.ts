@@ -56,7 +56,9 @@ export function normalizeName(raw: string): string {
     .filter((w) => !STRUCTURAL.has(w));
 
   // Singularise the common plural-by-`s` case so `curls` and `curl` agree.
-  const singular = words.map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w));
+  // The threshold is three characters rather than four because `ups` is a
+  // word that matters here: `Pull Ups` and `Pull Up` are one exercise.
+  const singular = words.map((w) => (w.length > 2 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w));
   return singular.join(' ').trim();
 }
 

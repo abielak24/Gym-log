@@ -26,6 +26,31 @@ Two ways to use it:
 - **Ship it** — set `DEFAULT_API` in `src/app/crew.ts` to that URL and push.
   Everyone who opens the app then gets it.
 
+## Deploying it without a terminal
+
+Everything below happens in the Cloudflare dashboard. Labels move around, so
+the quickest way to any of these pages is **Quick search (Ctrl K)**.
+
+1. **Make the database.** Ctrl K, type `D1`, open **D1 SQL Database** and
+   create one called `gym-log-crew`.
+2. **Give it its tables.** Open that database, go to its **Console** tab,
+   paste the whole of [`schema.sql`](schema.sql), and run it.
+3. **Make the worker.** Workers & Pages, **Create application**, then Worker.
+   Name it `gym-log-crew` and deploy the starter it offers.
+4. **Paste the code.** Open the worker, **Edit code**, select everything in
+   the editor and replace it with [`paste-into-dashboard.js`](paste-into-dashboard.js).
+   Deploy.
+5. **Connect the two.** In the worker's **Settings → Bindings**, add a **D1
+   database** binding. The variable name must be exactly `DB`, and it points
+   at `gym-log-crew`. Deploy again.
+
+The worker's URL is `https://gym-log-crew.<your subdomain>.workers.dev`, and
+your subdomain is shown under **Account details** on the Workers & Pages page.
+
+`paste-into-dashboard.js` is generated — run `node worker/build.mjs` after
+changing anything in `src/`, or the dashboard copy will drift from the source.
+`tests/bundle.test.ts` checks it has not.
+
 ## What it stores
 
 Per member: a chosen display name, a hash of their token, and the summary

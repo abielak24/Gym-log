@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildMonth, monthKey, shiftMonth, shortLabel } from '../src/core/calendar';
-import { createSamples } from '../src/core/sample';
+import { notebookPages } from './fixtures';
 import type { Session } from '../src/core/types';
 
 const TODAY = new Date(2026, 8, 22); // Tuesday 22 September 2026
@@ -21,7 +21,7 @@ describe('moving between months', () => {
 });
 
 describe('a month of training', () => {
-  const month = buildMonth('2026-09', createSamples(TODAY), TODAY);
+  const month = buildMonth('2026-09', notebookPages(TODAY), TODAY);
 
   it('is six weeks of seven days, starting on a Sunday', () => {
     expect(month.weeks).toHaveLength(6);

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildTemplates } from '../src/core/templates';
 import { buildGrid, strayExercises } from '../src/core/grid';
-import { createSamples } from '../src/core/sample';
+import { notebookPages } from './fixtures';
 import type { Session } from '../src/core/types';
 
 const TODAY = new Date(2026, 8, 22);
-const SAMPLES = createSamples(TODAY);
+const SAMPLES = notebookPages(TODAY);
 
 function page(date: string, text: string): Session {
   return { id: date, date, text, updatedAt: 0 };

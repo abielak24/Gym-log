@@ -38,11 +38,30 @@ export function toast(text: string): void {
   setTimeout(() => element.remove(), 3200);
 }
 
-/** Shown while the seeded example pages are still there. */
+/**
+ * The sample history: in while it is wanted, gone in one tap when it is not,
+ * and offered again afterwards for anyone who wants to see a full log.
+ */
 export function samplesBanner(): HTMLElement | null {
-  if (!store.hasSamples()) return null;
-  const bar = banner('Two sample pages from a notebook, so a new split has something to prefill from.', 'sample');
-  bar.append(action('Clear samples', () => store.clearSamples()));
+  if (store.hasSamples()) {
+    const bar = banner('Showing sample history — five sessions of each split and a fortnight of tracking.', 'sample');
+    bar.append(action('Clear samples', () => store.clearSamples()));
+    return bar;
+  }
+  return null;
+}
+
+/** Offered at the bottom, where it is out of the way of a real log. */
+export function sampleOffer(): HTMLElement | null {
+  if (store.hasSamples()) return null;
+
+  const bar = document.createElement('p');
+  bar.className = 'note';
+  bar.textContent = 'Want to see how it reads with history in it? ';
+  bar.append(action('Load sample data', () => {
+    store.addSamples();
+    toast('Sample history loaded. Clear it any time from the banner at the top.');
+  }));
   return bar;
 }
 

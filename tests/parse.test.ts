@@ -80,12 +80,12 @@ describe('dates in a header', () => {
 });
 
 describe('the chest page from the notebook', () => {
-  const [chest] = createSamples(TODAY);
+  const chest = createSamples(TODAY).filter((s) => s.text.startsWith('Chest/Tris')).pop()!;
   const page = parsePage(chest.text, TODAY);
 
   it('reads the header as a name and a date', () => {
     expect(page.title).toBe('Chest/Tris');
-    expect(page.date).toBe('2026-09-15');
+    expect(page.date).toBe('2026-09-04');
   });
 
   it('finds every exercise in order', () => {
@@ -100,14 +100,14 @@ describe('the chest page from the notebook', () => {
   it('reads the full ramp of the first exercise', () => {
     const sets = page.exercises[0].sets.flatMap((s) => s.columns!);
     expect(sets.map((s) => `${s.weight}x${s.reps}`)).toEqual([
-      '45x8', '45x8', '70x8', '80x8', '90x8', '95x7', '70x8',
+      '45x8', '45x8', '70x8', '80x8', '85x8', '85x7', '70x8',
     ]);
   });
 
   it('reads bodyweight dips and the weight added afterwards', () => {
     const dips = page.exercises[3].sets.flatMap((s) => s.columns!);
     expect(dips[0]).toMatchObject({ weight: null, reps: 10 });
-    expect(dips[4]).toMatchObject({ weight: 50, reps: 10 });
+    expect(dips[1]).toMatchObject({ weight: 15, reps: 10 });
   });
 
   it('flags nothing on a clean page', () => {
@@ -116,23 +116,23 @@ describe('the chest page from the notebook', () => {
 });
 
 describe('the back page from the notebook', () => {
-  const [, back] = createSamples(TODAY);
+  const back = createSamples(TODAY).filter((s) => s.text.startsWith('Back/Bis/Shoulders')).pop()!;
   const page = parsePage(back.text, TODAY);
 
   it('keeps a slashed title intact', () => {
     expect(page.title).toBe('Back/Bis/Shoulders');
-    expect(page.date).toBe('2026-09-16');
+    expect(page.date).toBe('2026-09-05');
   });
 
   it('gives each side of the superset its own name and history', () => {
     const rows = page.exercises.find((e) => e.name.startsWith('Rows'))!;
     expect(rows.sets).toHaveLength(3);
     expect(rows.sets[0].columns).toHaveLength(2);
-    expect(rows.columnNames).toEqual(['Rows (superset) (A)', 'Rows (superset) (B)']);
+    expect(rows.columnNames).toEqual(['Rows', 'Cable Rows']);
     expect(rows.columnKeys[0]).not.toBe(rows.columnKeys[1]);
   });
 
-  it('drops "superset" from the exercise identity', () => {
+  it('identifies the superset by its first side', () => {
     const rows = page.exercises.find((e) => e.name.startsWith('Rows'))!;
     expect(rows.key).toBe('row');
   });

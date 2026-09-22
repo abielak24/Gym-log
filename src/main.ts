@@ -108,7 +108,14 @@ store.pruneEmpty();
 store.subscribe(() => {
   // Never rebuild a screen while it is being typed into: home saves the
   // daily tracker as you type, and redrawing would take the cursor with it.
-  if (document.activeElement && view.contains(document.activeElement)) return;
+  // A focused *button* is not typing, though - it is the thing that just
+  // asked for the change, and it must not block its own redraw.
+  const focused = document.activeElement;
+  const typing = focused
+    && view.contains(focused)
+    && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA');
+  if (typing) return;
+
   if (location.hash.startsWith('#/home') || location.hash === '#/' || location.hash === '') route();
 });
 

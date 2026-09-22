@@ -92,20 +92,22 @@ await backLink.click();
 await page.waitForSelector('.grid');
 
 const rowNames = await page.locator('.grid-name').allTextContents();
-check('the grid lists the split’s exercises down the left', rowNames.join(',') === 'Pull Ups,Lat Pull Down,Rows (superset),Curls', rowNames.join(','));
-check('last session is a column', (await page.locator('.grid-date').count()) === 1);
-check('and its sets are in the cells', (await page.locator('.grid-cell').first().textContent())?.includes('10x8'));
+check('the grid lists the split’s exercises down the left', rowNames.join(',') === 'Pull Ups,Lat Pull Down,Rows | Cable Rows,Curls', rowNames.join(','));
+check('five sessions of history are columns', (await page.locator('.grid-date').count()) === 5, String(await page.locator('.grid-date').count()));
+check('and their sets are in the cells', (await page.locator('.grid').textContent())?.includes('170x'));
+check('an unfinished session shows as a blank cell', (await page.locator('.grid-cell:empty').count()) > 0);
+await page.screenshot({ path: join(SHOTS, '13-history-grid.png'), fullPage: true });
 
 // --- Starting today adds a column on the right -------------------------------
 await page.locator('.btn-primary', { hasText: 'Log today' }).click();
 await page.waitForSelector('.grid-cell-today');
 
 const dates = await page.locator('.grid-date').allTextContents();
-check('today becomes a new column, to the right of last time', dates.length === 2, dates.join(' '));
+check('today becomes a new column, to the right of last time', dates.length === 6, dates.join(' '));
 check('only today’s column can be typed into', (await page.locator('.grid-cell-today').count()) === rowNames.length);
 
 const pullUps = page.locator('textarea[data-exercise="Pull Ups"]');
-check('an empty cell offers last time’s sets as a placeholder', (await pullUps.getAttribute('placeholder')) === '8\n10x8\n10x8');
+check('an empty cell offers last time’s sets as a placeholder', (await pullUps.getAttribute('placeholder')) === '12\n10x8\n10x8', String(await pullUps.getAttribute('placeholder')));
 
 await pullUps.click();
 await page.keyboard.type('10\n12x8\n13x8');
@@ -264,7 +266,7 @@ await page.goto(`${url}#/cal`);
 await page.waitForSelector('.cal');
 check('the month draws six weeks', (await page.locator('.cal-day').count()) === 42);
 const trained = await page.locator('.cal-trained').count();
-check('days trained are filled in from the pages', trained >= 3, `${trained} days`);
+check('a month of training is filled in from the pages', trained >= 10, `${trained} days`);
 check('and say which split it was', (await page.locator('.cal-split').first().textContent())?.length > 0);
 check('today is marked', (await page.locator('.cal-today').count()) === 1);
 check('days that have not happened are not tappable', (await page.locator('.cal-day:disabled').count()) > 0);
@@ -335,14 +337,8 @@ await page.screenshot({ path: join(SHOTS, '8-home.png'), fullPage: true });
 // --- The daily tracker ---------------------------------------------------------
 await page.goto(`${url}#/home`);
 await page.waitForSelector('.daily');
-check('the tracker starts empty and says what it is for', (await page.locator('.daily .note').count()) === 1);
-
-for (const name of ['Pushups', 'Cardio', 'Steps']) {
-  await page.locator('input[aria-label="Add something to track daily"]').fill(name);
-  await page.locator('button[aria-label="Add daily tracker row"]').click();
-  await page.waitForTimeout(150);
-}
-check('three things can be tracked', (await page.locator('.daily-row').count()) === 3, String(await page.locator('.daily-row').count()));
+check('today starts from the sample history\u2019s goals', (await page.locator('.daily-row').count()) === 3, String(await page.locator('.daily-row').count()));
+check('with its values empty', (await page.locator('input[aria-label="Steps today"]').inputValue()) === '');
 
 const goals = [['Pushups', '100', '100'], ['Cardio', '30min', '30min'], ['Steps', '10k', '7.5k']];
 for (const [name, goal, value] of goals) {
@@ -377,8 +373,35 @@ await page.locator('.cal-panel a', { hasText: 'Daily' }).click();
 await page.waitForSelector('.daily-row');
 check('a day\u2019s tracker can be opened from the calendar', (await page.locator('.exercise-name').textContent())?.startsWith('Daily'));
 
+// --- Clearing the sample history ---------------------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.banner-sample');
+await page.locator('.banner-sample .btn').click();
+await page.waitForTimeout(250);
+check('clearing samples takes the banner away', (await page.locator('.banner-sample').count()) === 0);
+check('and offers to load them again', (await page.locator('.note .btn', { hasText: 'Load sample' }).count()) === 1);
+
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+const leftOver = await page.locator('.cal-trained').count();
+check('the sample days come off the calendar', leftOver <= 3, `${leftOver} days left`);
+const dotsLeft = await page.locator('.dot').count();
+check('and their tracker dots go with them', dotsLeft <= 3, `${dotsLeft} dots left`);
+
+await page.goto(`${url}#/home`);
+await page.locator('.note .btn', { hasText: 'Load sample' }).click();
+await page.waitForTimeout(300);
+check('loading them again brings the history back', (await page.locator('.banner-sample').count()) === 1);
+check('and the splits are back with it', (await page.locator('.split-name').allTextContents()).includes('Chest/Tris'));
+
 // --- Goals belong to the day they were set on ------------------------------------------
-await page.goto(`${url}#/daily/2026-09-15`);
+// A day well before the sample tracker starts, so it is genuinely untracked.
+const longAgo = await page.evaluate(() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 60);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+});
+await page.goto(`${url}#/daily/${longAgo}`);
 await page.waitForSelector('.daily');
 check('an untracked past day starts from the last tracked goals', (await page.locator('input[aria-label="Pushups goal"]').inputValue()) === '100');
 check('with its values empty, not borrowed', (await page.locator('input[aria-label="Pushups today"]').inputValue()) === '');

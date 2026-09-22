@@ -10,7 +10,7 @@ import type { Session, Template, TemplateOverride } from '../core/types';
 import { buildHistory, type History } from '../core/history';
 import { parsePage } from '../core/parse';
 import { isoToday, newSessionId } from '../core/serialize';
-import { createSamples } from '../core/sample';
+import { createSampleDaily, createSamples } from '../core/sample';
 import { buildTemplates } from '../core/templates';
 import { entriesFor, pruneLog, seedFor, type DailyEntry, type DailyLog } from '../core/daily';
 import { writeCell } from '../core/edit';
@@ -29,6 +29,8 @@ interface Stored {
   starred: string[];
   /** The daily tracker, by ISO date. A date absent here was not tracked. */
   daily: DailyLog;
+  /** Tracker days that came from the sample data, so they can be cleared. */
+  sampleDaily: string[];
 }
 
 const EMPTY: Stored = {
@@ -39,6 +41,7 @@ const EMPTY: Stored = {
   overrides: [],
   starred: [],
   daily: {},
+  sampleDaily: [],
 };
 
 let state: Stored = EMPTY;
@@ -58,8 +61,7 @@ export function load(today = new Date()): void {
   }
 
   if (state.sessions.length === 0 && !state.samplesCleared) {
-    state = { ...state, sessions: createSamples(today) };
-    persist();
+    addSamples(today);
   }
   history = null;
   templates = null;
@@ -182,7 +184,12 @@ export function dailyFor(date: string): { entries: DailyEntry[]; seeded: boolean
 }
 
 export function saveDaily(date: string, entries: DailyEntry[]): void {
-  state = { ...state, daily: pruneLog({ ...state.daily, [date]: entries }) };
+  state = {
+    ...state,
+    daily: pruneLog({ ...state.daily, [date]: entries }),
+    // Once a sample day is written over, it is the user's day.
+    sampleDaily: state.sampleDaily.filter((day) => day !== date),
+  };
   persist();
   emit();
 }
@@ -205,7 +212,38 @@ export function toggleStar(key: string): void {
 }
 
 export function hasSamples(): boolean {
-  return state.sessions.some((s) => s.sample);
+  return state.sessions.some((s) => s.sample) || state.sampleDaily.length > 0;
+}
+
+/**
+ * Put the sample history in alongside whatever is already here.
+ *
+ * Days that already hold something real are left alone, so loading the
+ * samples to see how a full log reads can never overwrite an actual workout.
+ */
+export function addSamples(today = new Date()): void {
+  const takenDates = new Set(state.sessions.map((s) => s.date));
+  const sessions = createSamples(today).filter((s) => !takenDates.has(s.date));
+
+  const sampleDaily = createSampleDaily(today);
+  const daily = { ...state.daily };
+  const addedDays: string[] = [];
+
+  for (const [date, entries] of Object.entries(sampleDaily)) {
+    if (daily[date]?.length) continue;
+    daily[date] = entries;
+    addedDays.push(date);
+  }
+
+  state = {
+    ...state,
+    sessions: [...sessions, ...state.sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
+    daily,
+    sampleDaily: [...new Set([...state.sampleDaily, ...addedDays])],
+    samplesCleared: false,
+  };
+  persist();
+  emit();
 }
 
 /** Today's page, created on first keystroke rather than on every app open. */
@@ -243,7 +281,16 @@ export function deleteSession(id: string): void {
 }
 
 export function clearSamples(): void {
-  state = { ...state, sessions: state.sessions.filter((s) => !s.sample), samplesCleared: true };
+  const daily = { ...state.daily };
+  for (const date of state.sampleDaily) delete daily[date];
+
+  state = {
+    ...state,
+    sessions: state.sessions.filter((s) => !s.sample),
+    daily,
+    sampleDaily: [],
+    samplesCleared: true,
+  };
   persist();
   emit();
 }

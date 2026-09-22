@@ -133,6 +133,17 @@ rather than as sets.
 No browser can write to iCloud Drive on its own, so this is one deliberate tap
 rather than background sync. The app nudges you if a week goes by without one.
 
+## Seeing it with history in it
+
+A fresh install comes with sample data: five sessions of each of two splits
+over the past three weeks, and a fortnight of the daily tracker. It is enough
+to see progression in a grid, a blank cell where a session was left
+unfinished, and a calendar with dots on it.
+
+Clear it in one tap from the banner at the top of Home, and load it again
+from the bottom of Home whenever you want another look. Loading it never
+touches a day you have really trained.
+
 ## Putting it on your phone
 
 Open the site in Safari, then Share → **Add to Home Screen**. It gets its own

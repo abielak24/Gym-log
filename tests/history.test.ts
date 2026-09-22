@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildHistory, ghostLines, heaviestSet, lastTime, pageVolume, suggestNames } from '../src/core/history';
 import { parsePage } from '../src/core/parse';
-import { createSamples } from '../src/core/sample';
+import { notebookPages } from './fixtures';
 import { normalizeName } from '../src/core/normalize';
 import type { Session } from '../src/core/types';
 
 const TODAY = new Date(2026, 8, 22);
-const SAMPLES = createSamples(TODAY);
+const SAMPLES = notebookPages(TODAY);
 
 describe('names that mean the same lift', () => {
   it('folds abbreviations and plurals together', () => {

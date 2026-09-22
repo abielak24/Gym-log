@@ -484,6 +484,8 @@ body {
   color: var(--ink);
   text-decoration: none;
   border-right: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  /* Lifts the pinned column over the half-scrolled one behind it. */
+  box-shadow: 6px 0 10px -6px rgb(0 0 0 / 0.55);
 }
 
 /*
@@ -505,7 +507,13 @@ body {
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
 }
 
-.grid-corner { position: sticky; left: 0; z-index: 4; padding-left: 12px; }
+.grid-corner {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  padding-left: 12px;
+  box-shadow: 6px 0 10px -6px rgb(0 0 0 / 0.55);
+}
 
 .grid-cell {
   margin: 0;

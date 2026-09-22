@@ -113,6 +113,10 @@ page cannot express — `overrides` (a renamed or reordered split) and
   inside it is measured from the grid's own top, not the viewport's — which
   parked the date header permanently on top of the first row. Only the
   horizontal stickiness of the exercise column is real.
+- **A focused button is not typing.** The store's subscriber skips a redraw
+  while an `input` or `textarea` inside the view has focus; it must not skip
+  for a focused button, which is usually the thing that just asked for the
+  change and would otherwise block its own redraw.
 - **Never re-render a screen that owns focus.** The store's subscriber
   redraws only Home. The grid's cells, the page editor and a drag in
   progress save on a debounce, and rebuilding them mid-gesture throws away
@@ -141,6 +145,13 @@ page cannot express — `overrides` (a renamed or reordered split) and
 | `95x7 (felt heavy)` | a set with a note |
 | `// slept badly` | a note, ignored by history |
 
-The two pages from the original notebook photo live in `src/core/sample.ts`
-and are the fixture the parser tests run against. If you change the format,
-those tests are the contract you are changing.
+`src/core/sample.ts` holds the demo history — five sessions of each split
+and a fortnight of the daily tracker — which loads on a fresh install and can
+be loaded or cleared from Home at any time. It is **not** a test fixture:
+tests needing "some sessions" use `tests/fixtures.ts`, so the demo content
+can be rewritten without breaking assertions that were never about it.
+`tests/sample.test.ts` is what holds the demo itself to account: it must
+parse cleanly, show progression, and include a blank cell and a superset.
+
+Loading samples is additive — days that already hold something real are left
+alone — so nobody can lose a workout by tapping it out of curiosity.

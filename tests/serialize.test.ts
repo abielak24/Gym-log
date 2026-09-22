@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { exportJson, exportText, importJson, importText, mergeSessions, newSessionId } from '../src/core/serialize';
-import { createSamples } from '../src/core/sample';
+import { notebookPages } from './fixtures';
 import type { Session } from '../src/core/types';
 import { makeEntry } from '../src/core/daily';
 
 const TODAY = new Date(2026, 8, 22);
-const SAMPLES = createSamples(TODAY);
+const SAMPLES = notebookPages(TODAY);
 
 describe('the text file you keep in iCloud', () => {
   it('is the notebook, unchanged', () => {

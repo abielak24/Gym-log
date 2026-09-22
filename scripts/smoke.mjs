@@ -48,7 +48,9 @@ function check(name, condition, detail = '') {
 const server = await serve();
 if (!existsSync(SHOTS)) mkdirSync(SHOTS);
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+// Use the browser this machine already has, or let Playwright find its own.
+const preinstalled = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
+const browser = await chromium.launch(existsSync(preinstalled) ? { executablePath: preinstalled } : {});
 const context = await browser.newContext({
   viewport: { width: 393, height: 852 },
   deviceScaleFactor: 2,

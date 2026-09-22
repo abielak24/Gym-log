@@ -290,6 +290,47 @@ await page.waitForSelector('.grid');
 const saved = await page.locator('.grid-cell-today').first().inputValue();
 check('a set added to a past session is saved', saved.includes('99x1'), saved.replace(/\n/g, '|'));
 
+// --- Writing a comment that is not a set ----------------------------------------
+const noteCell = page.locator('.grid-cell-today').first();
+const beforeNote = await noteCell.inputValue();
+await noteCell.fill(`${beforeNote}\nshoulder felt tight`);
+await page.waitForTimeout(500);
+
+check('the app tells you a sentence is not a set', (await page.locator('.cell-notice-head').textContent())?.includes('will not be read as a set'));
+check('and says what will happen to it', (await page.locator('.cell-notice .problem-why').first().textContent())?.includes('kept as a note'));
+check('the cell is marked, but not as an error', (await page.locator('.grid-cell-prose').count()) === 1);
+check('and the rule is written down where you are typing', (await page.locator('.note').last().textContent())?.includes('//'));
+await page.screenshot({ path: join(SHOTS, '15-note-offer.png'), fullPage: true });
+
+await page.locator('.cell-notice .btn', { hasText: 'Make it a note' }).click();
+await page.waitForTimeout(500);
+check('one tap makes it a note', (await page.locator('.grid-cell-today').first().inputValue()).includes('// shoulder felt tight'));
+check('and the warning goes away', (await page.locator('.cell-notice-head').count()) === 0);
+check('with the cell no longer marked', (await page.locator('.grid-cell-prose').count()) === 0);
+
+await page.reload();
+await page.waitForSelector('.grid');
+const kept = await page.locator('.grid-cell-today').first().inputValue();
+check('the note survives a reload, in the cell', kept.includes('// shoulder felt tight'), kept.replace(/\n/g, '|'));
+check('and did not become an exercise', (await page.locator('.grid-name').allTextContents()).includes('shoulder felt tight') === false);
+check('nor a flagged line', (await page.locator('.grid-cell-unreadable').count()) === 0);
+
+// Even without tapping the offer, tabbing away keeps it with its exercise.
+const untouched = page.locator('.grid-cell-today').nth(1);
+const priorValue = await untouched.inputValue();
+await untouched.fill(`${priorValue}\nback was tight`);
+await untouched.blur();
+await page.waitForTimeout(500);
+check('leaving a cell settles a sentence into a note by itself', (await untouched.inputValue()).includes('// back was tight'));
+await page.reload();
+await page.waitForSelector('.grid');
+check('and it is not an exercise after a reload either', (await page.locator('.grid-name').allTextContents()).includes('back was tight') === false);
+await page.locator('.grid-cell-today').nth(1).fill(priorValue);
+await page.waitForTimeout(500);
+
+await page.locator('.grid-cell-today').first().fill(beforeNote);
+await page.waitForTimeout(500);
+
 // --- A line the parser cannot read stays visible and stays single ----------------
 const messy = page.locator('.grid-cell-today').first();
 await messy.fill(`${existing}\n99x`);

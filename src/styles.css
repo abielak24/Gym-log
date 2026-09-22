@@ -811,3 +811,33 @@ body {
 .danger-note { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: var(--bad); }
 .btn-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 .btn-danger-on { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+/* What in today's column will not read as sets ----------------------------- */
+
+.cell-notice:empty { display: none; }
+
+.cell-notice {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.cell-notice-head { margin: 0 0 8px; font-size: 13px; color: var(--warn); }
+
+.cell-notice ul { list-style: none; margin: 0; padding: 0; }
+
+.cell-notice li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.cell-notice-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cell-notice code { font-family: var(--font-mono); font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.cell-notice .problem-why { font-size: 12px; color: var(--ink-dim); }
+.cell-notice .btn { flex: none; }
+
+/* A sentence is not a broken set: it is only in the wrong form. */
+.grid-cell-prose { box-shadow: inset 2px 0 0 var(--warn); }

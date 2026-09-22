@@ -111,6 +111,21 @@ as a placeholder. And in the text page, they appear in grey under the cursor.
 Names are matched loosely, so `DB Incline Press` and `Dumbbell Incline Press`
 are one exercise with one history.
 
+**You can write things that aren't sets.** Start a line with `//` and it is
+kept with that exercise and left out of your history:
+
+```
+95x7
+95x6
+// shoulder felt tight, stopped early
+```
+
+Inside a grid cell you don't have to remember the `//`. The cell already
+says which exercise you mean, so a sentence typed there is kept as a note on
+it — the app says so while you type, and settles it when you move on. On the
+text page there is no such context, so a line with no numbers really is read
+as a new exercise; that is what the `//` is for.
+
 **It tells you when it didn't understand.** A line it can't read gets a red
 wave under it and stays exactly as you typed it — nothing is ever silently
 reinterpreted into a number you didn't mean. If the line was deliberate,
@@ -182,11 +197,14 @@ reason to look at your phone for longer between sets.
 
 ## Known limits
 
-- **Prose under an exercise becomes a heading.** A line with no digits is read
-  as an exercise name, so `felt weak today` starts a new exercise, and sets
-  written after it attach to that instead of the lift above. The editor shows
-  it styled as a heading so you can see it happen, and flags it if nothing
-  follows — but prefix thoughts with `//` and it can't bite.
+- **Prose on the text page becomes a heading.** Reading a page top to bottom,
+  a line with no digits is an exercise name, so `felt weak today` typed into
+  the text editor starts a new exercise and the sets after it attach to that.
+  The editor styles it as a heading so you can see it happen, and flags it if
+  nothing follows. Grid cells do not have this problem — there the exercise
+  is already known — but on the text page, prefix thoughts with `//`.
+- **The daily tracker has no comments.** A row is a name, a value and a goal;
+  there is nowhere to say why the number was what it was.
 - **Weight is just a number.** `50x10` under `Dips` could be 50 lb added or 50
   lb of assistance. The app records what you wrote and doesn't guess, which
   means it also can't total those sets correctly in volume.

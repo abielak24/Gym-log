@@ -7,8 +7,32 @@
  * somebody's notes and are not ours to tidy away.
  */
 
-import { parsePage } from './parse';
+import { parsePage, parseSetLine } from './parse';
 import { headingKey } from './normalize';
+
+/**
+ * Keep a cell's lines attached to the exercise they were typed under.
+ *
+ * On a page, a line with no numbers in it is an exercise heading — which is
+ * right when reading a page top to bottom, and wrong inside a grid cell,
+ * where the exercise is already known and `shoulder felt tight` would
+ * silently become an exercise of its own and steal the sets below it. Such a
+ * line is kept as a note on that exercise instead.
+ *
+ * This is not the parser guessing at meaning: the cell says which exercise
+ * the line belongs to. A half-written set like `95x` is left exactly as
+ * typed, because there the intent really is a set and the flag is the point.
+ */
+export function asCellLines(lines: string[]): string[] {
+  return lines.map((raw) => {
+    const line = raw.trim();
+    if (!line || /^(?:\/\/|#)/.test(line)) return line;
+
+    const result = parseSetLine(line);
+    if (result.ok) return line;
+    return result.reason === null ? `// ${line}` : line;
+  });
+}
 
 /**
  * Replace everything under `name` with `lines`.
@@ -26,8 +50,8 @@ export function writeCell(text: string, name: string, lines: string[]): string {
   const page = parsePage(text);
   const key = headingKey(name);
   const all = text.split('\n');
-  // A cell holds set lines and nothing else, so blank lines in it are noise.
-  const clean = lines.map((line) => line.trim()).filter(Boolean);
+  // A cell holds set lines and notes; blank lines in it are noise.
+  const clean = asCellLines(lines).filter(Boolean);
 
   const index = page.exercises.findIndex((block) => block.key === key);
 

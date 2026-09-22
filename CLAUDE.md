@@ -100,6 +100,13 @@ page cannot express — `overrides` (a renamed or reordered split) and
 - **Ghost text only renders when the cursor's block is the last on the page**,
   because there is nothing below it to collide with. The hint bar covers the
   mid-page case.
+- **A cell's lines go through `asCellLines` on the way in.** On a page, a
+  line with no digits is an exercise heading; inside a cell that is always
+  wrong, because the cell already names the exercise, and such a line would
+  silently become an exercise of its own and steal the sets below it. It is
+  kept as a `//` note instead. This is not the parser guessing at meaning —
+  the cell supplies the context — and a half-written set like `95x` is still
+  left exactly as typed, because there the flag is the point.
 - **Look an exercise up with `headingKey`, never `normalizeName`.** A
   superset heading names both sides (`Rows | Cable Rows`) and its identity is
   the first one. Using `normalizeName` on the whole heading yields a key no

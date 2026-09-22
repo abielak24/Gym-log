@@ -15,13 +15,29 @@ import { buildGrid, type GridCell } from '../core/grid';
 import { parseSetLine } from '../core/parse';
 import { lastTime } from '../core/history';
 import { normalizeName } from '../core/normalize';
-import { addExercise } from '../core/edit';
+import { addExercise, asCellLines } from '../core/edit';
 import type { Template } from '../core/types';
 import { friendlyDate } from './format';
 import * as store from './store';
 import { isoToday } from '../core/serialize';
 
 const SAVE_DELAY = 400;
+
+/**
+ * What the parser will make of a line, decided the same way it decides.
+ *
+ * `prose` is the case worth catching: a line with no numbers in it becomes
+ * an exercise heading further down the page, which is never what someone
+ * writing "shoulder felt tight" meant.
+ */
+type LineKind = 'note' | 'set' | 'broken' | 'prose';
+
+function classifyLine(line: string): LineKind {
+  if (/^(?:\/\/|#)/.test(line)) return 'note';
+  const result = parseSetLine(line);
+  if (result.ok) return 'set';
+  return result.reason === null ? 'prose' : 'broken';
+}
 
 /**
  * Cells save a moment after you stop typing. Closing the app inside that
@@ -57,10 +73,99 @@ export function renderTemplate(root: HTMLElement, key: string, editing?: string)
   const open = editing && template.sessionIds.includes(editing) ? editing : todaySession?.id;
 
   root.append(header(template, open, todaySession?.id));
-  root.append(grid(template, root, open));
 
-  if (open) root.append(addExerciseRow(template, open, root));
-  else root.append(startButton(template, root));
+  const notice = document.createElement('div');
+  notice.className = 'cell-notice';
+
+  const table = grid(template, root, open, () => refreshNotice(notice, table));
+  root.append(table);
+  root.append(notice);
+  refreshNotice(notice, table);
+
+  if (open) {
+    root.append(addExerciseRow(template, open, root));
+    root.append(noteHint());
+  } else {
+    root.append(startButton(template, root));
+  }
+}
+
+/** The one piece of syntax worth telling people about, where they are typing. */
+function noteHint(): HTMLElement {
+  const hint = document.createElement('p');
+  hint.className = 'note';
+  hint.textContent = 'Start a line with // to write a note instead of a set \u2014 it is kept with the exercise and left out of your history.';
+  return hint;
+}
+
+/**
+ * What in today's column will not read as sets, and how to keep it anyway.
+ *
+ * Built from the cells as they are typed rather than from the saved page, so
+ * the offer arrives with the mistake instead of after it.
+ */
+function refreshNotice(notice: HTMLElement, table: HTMLElement): void {
+  const problems: Array<{ text: string; kind: LineKind; fix: () => void }> = [];
+
+  for (const cell of table.querySelectorAll<HTMLTextAreaElement>('textarea.grid-cell-today')) {
+    const lines = cell.value.split('\n');
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const kind = classifyLine(trimmed);
+      if (kind === 'set' || kind === 'note') return;
+
+      problems.push({
+        text: trimmed,
+        kind,
+        fix: () => {
+          const next = [...cell.value.split('\n')];
+          next[index] = line.replace(/^(\s*)/, '$1// ');
+          cell.value = next.join('\n');
+          cell.dispatchEvent(new Event('input'));
+        },
+      });
+    });
+  }
+
+  notice.replaceChildren();
+  if (problems.length === 0) return;
+
+  const heading = document.createElement('p');
+  heading.className = 'cell-notice-head';
+  heading.textContent = problems.length === 1
+    ? 'One line will not be read as a set:'
+    : `${problems.length} lines will not be read as sets:`;
+  notice.append(heading);
+
+  const list = document.createElement('ul');
+  for (const problem of problems) {
+    const row = document.createElement('li');
+
+    const text = document.createElement('code');
+    text.textContent = problem.text;
+
+    const why = document.createElement('span');
+    why.className = 'problem-why';
+    why.textContent = problem.kind === 'prose'
+      ? 'kept as a note on this exercise, not counted as a set'
+      : 'not readable as weight x reps';
+
+    const label = document.createElement('div');
+    label.className = 'cell-notice-text';
+    label.append(text, why);
+
+    const fix = document.createElement('button');
+    fix.type = 'button';
+    fix.className = 'btn btn-ghost';
+    fix.textContent = 'Make it a note';
+    fix.addEventListener('click', problem.fix);
+
+    row.append(label, fix);
+    list.append(row);
+  }
+  notice.append(list);
 }
 
 function header(template: Template, openId?: string, todayId?: string): HTMLElement {
@@ -106,7 +211,7 @@ function header(template: Template, openId?: string, todayId?: string): HTMLElem
   return bar;
 }
 
-function grid(template: Template, root: HTMLElement, editableId?: string): HTMLElement {
+function grid(template: Template, root: HTMLElement, editableId: string | undefined, onInput: () => void): HTMLElement {
   const data = buildGrid(template, store.sessions(), { editableSessionId: editableId });
 
   const scroller = document.createElement('div');
@@ -150,7 +255,7 @@ function grid(template: Template, root: HTMLElement, editableId?: string): HTMLE
         // The column before this one is what the placeholder offers, so an
         // empty cell shows last time's sets without pretending they are typed.
         const previous = index > 0 ? row.cells[index - 1].lines : ghostFromHistory(row.name, column.sessionId);
-        table.append(editableCell(column.sessionId, row.name, cell, previous));
+        table.append(editableCell(column.sessionId, row.name, cell, previous, onInput));
       } else {
         table.append(readOnlyCell(cell, index === editableIndex - 1));
       }
@@ -181,7 +286,13 @@ function readOnlyCell(content: GridCell, isPrevious: boolean): HTMLElement {
   return cell;
 }
 
-function editableCell(sessionId: string, exercise: string, content: GridCell, previous: string[]): HTMLElement {
+function editableCell(
+  sessionId: string,
+  exercise: string,
+  content: GridCell,
+  previous: string[],
+  onInput: () => void,
+): HTMLElement {
   const cell = document.createElement('textarea');
   cell.className = 'grid-cell grid-cell-today';
   cell.value = content.lines.join('\n');
@@ -200,13 +311,17 @@ function editableCell(sessionId: string, exercise: string, content: GridCell, pr
   };
 
   // Say so while it is being typed, rather than after it has been saved.
+  // A half-written set and a sentence are different mistakes, so they are
+  // marked differently: one is wrong, the other is only in the wrong form.
   const markUnreadable = () => {
-    const bad = cell.value
+    const kinds = cell.value
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .some((line) => !/^(?:\/\/|#)/.test(line) && !parseSetLine(line).ok);
-    cell.classList.toggle('grid-cell-unreadable', bad);
+      .map(classifyLine);
+
+    cell.classList.toggle('grid-cell-unreadable', kinds.includes('broken'));
+    cell.classList.toggle('grid-cell-prose', kinds.includes('prose'));
   };
 
   const save = () => {
@@ -219,11 +334,23 @@ function editableCell(sessionId: string, exercise: string, content: GridCell, pr
   cell.addEventListener('input', () => {
     resize();
     markUnreadable();
+    onInput();
     pending.add(save);
     if (timer !== undefined) clearTimeout(timer);
     timer = window.setTimeout(save, SAVE_DELAY);
   });
-  cell.addEventListener('blur', save);
+  cell.addEventListener('blur', () => {
+    save();
+    // Show what was actually stored: a sentence is kept as a note, and the
+    // cell should say so rather than quietly differing from the page.
+    const settled = asCellLines(cell.value.split('\n')).join('\n');
+    if (settled !== cell.value) {
+      cell.value = settled;
+      resize();
+      markUnreadable();
+      onInput();
+    }
+  });
 
   markUnreadable();
   requestAnimationFrame(resize);

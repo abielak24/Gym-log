@@ -140,3 +140,38 @@ describe('adding an exercise with no sets yet', () => {
     expect(addExercise(PAGE, 'pull up')).toBe(PAGE);
   });
 });
+
+describe('a comment typed into a cell', () => {
+  const PAGE_WITH_TWO = 'Back 9/22\nPull Ups\n10\n10\n\nCurls\n40x12';
+
+  it('is kept as a note on that exercise, not as an exercise of its own', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '10', 'shoulder felt tight']));
+
+    expect(page.exercises.map((e) => e.name)).toEqual(['Pull Ups', 'Curls']);
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['// shoulder felt tight']);
+    expect(page.exercises[0].sets).toHaveLength(2);
+  });
+
+  it('does not steal the sets written under the next exercise', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', 'felt strong today']));
+    expect(page.exercises[1].name).toBe('Curls');
+    expect(page.exercises[1].sets).toHaveLength(1);
+  });
+
+  it('leaves a half-written set alone, because there the flag is the point', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '95x']));
+    expect(page.flagged.map((f) => f.text)).toEqual(['95x']);
+    expect(page.exercises[0].notes).toEqual([]);
+  });
+
+  it('does not comment a line that is already a comment', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '// already noted']));
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['// already noted']);
+  });
+
+  it('round trips, so the cell and the page never disagree', () => {
+    const text = writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '10', 'shoulder felt tight']);
+    const again = writeCell(text, 'Pull Ups', ['10', '10', '// shoulder felt tight']);
+    expect(again).toBe(text);
+  });
+});

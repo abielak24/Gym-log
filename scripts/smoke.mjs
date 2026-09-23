@@ -197,7 +197,12 @@ await page.waitForSelector('.page-text');
 
 const written = await page.locator('.page-text').inputValue();
 check('the cells were written into the page itself', written.includes('Pull Ups\n10\n12x8\n13x8'), written.slice(0, 80));
-check('and the page keeps the split’s name and date', written.startsWith('9/22 Back/Bis/Shoulders'), written.split('\n')[0]);
+// Built from today's date, not written down: a hardcoded one breaks daily.
+const todayHeader = await page.evaluate(() => {
+  const now = new Date();
+  return `${now.getMonth() + 1}/${now.getDate()}`;
+});
+check('and the page keeps the split’s name and date', written.startsWith(`${todayHeader} Back/Bis/Shoulders`), written.split('\n')[0]);
 check('the other exercises are untouched', written.includes('Rows (superset)\n25x10 | 20x10') === false || true);
 check('nothing in the page is unreadable', (await page.locator('.ln-flagged').count()) === 0);
 

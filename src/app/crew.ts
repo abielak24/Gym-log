@@ -10,10 +10,10 @@ import { buildSummary, type MemberSummary } from '../core/summary';
 import * as store from './store';
 
 /**
- * Set once the worker is deployed. Until then the tab says sharing is not
- * set up rather than pretending to work.
+ * The deployed crew worker. Empty would mean sharing is not set up, and the
+ * Friends tab would say so rather than pretending to work.
  */
-const DEFAULT_API = '';
+const DEFAULT_API = 'https://gym-log-crew.abielak24.workers.dev';
 
 /** An override, so a deploy can be pointed at without rebuilding the app. */
 const API_OVERRIDE = 'gym-notebook:crew-api';

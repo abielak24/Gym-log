@@ -67,6 +67,31 @@ your subdomain is shown under **Account details** on the Workers & Pages page.
 changing anything in `src/`, or the dashboard copy will drift from the source.
 `tests/bundle.test.ts` checks it has not.
 
+## Upgrading a deployment made before this
+
+Two steps, in this order.
+
+1. **Add the new columns.** In the D1 console, run these three one at a
+   time — not as a block, because the console stops at the first error and
+   a column you already have raises one:
+
+   ```sql
+   ALTER TABLE crews ADD COLUMN admin_token_hash TEXT NOT NULL DEFAULT '';
+   ALTER TABLE members ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';
+   ALTER TABLE members ADD COLUMN name_key TEXT NOT NULL DEFAULT '';
+   ```
+
+   `duplicate column name` means that one is already there; move on.
+
+2. **Replace the worker code**, from `paste-into-dashboard.js` as above, or
+   `npx wrangler deploy`.
+
+**A crew made before this has no owner.** Its `admin_token_hash` is blank and
+there is nothing to issue one to after the fact — the whole point of the token
+is that only the phone that created the crew ever saw it. So nobody can remove
+a member from an old crew or change its link. Start a fresh crew and re-send
+the link if you want those.
+
 ## What it stores
 
 Per member: a chosen display name, a hash of their token, and the summary

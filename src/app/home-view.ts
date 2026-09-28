@@ -14,7 +14,7 @@ import { normalizeName } from '../core/normalize';
 import type { Template } from '../core/types';
 import { friendlyDate } from './format';
 import * as store from './store';
-import { backupNudge, backupPanel, sampleOffer, samplesBanner } from './panels';
+import { accountPanel, backupNudge, backupPanel, sampleOffer, samplesBanner } from './panels';
 import { dailyHeadline, dailySection } from './daily-view';
 
 /** A starred lift untouched for this long is worth pointing at. */
@@ -66,6 +66,7 @@ export function renderHome(root: HTMLElement): void {
   root.append(summaryCard());
 
   root.append(backupPanel());
+  root.append(accountPanel());
 
   const offer = sampleOffer();
   if (offer) root.append(offer);

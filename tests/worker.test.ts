@@ -1,15 +1,64 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, type Deps } from '../worker/src/handler';
-import { nameKey, type MemberRow, type Store } from '../worker/src/store';
+import { nameKey, type AccountRow, type AttemptRow, type CrewRow, type MemberRow, type SessionRow, type Store } from '../worker/src/store';
 
 /** An in-memory Store, so every rule can be tested with nothing deployed. */
 function memoryStore(): Store {
-  const crews = new Map<string, { id: string; secretHash: string; adminTokenHash: string }>();
+  const accounts = new Map<string, AccountRow>();
+  const sessions = new Map<string, SessionRow>();
+  const attempts = new Map<string, AttemptRow>();
+  const settings = new Map<string, string>();
+  const crews = new Map<string, CrewRow>();
   const members = new Map<string, Map<string, MemberRow>>();
 
   return {
-    async createCrew(id, secretHash, adminTokenHash) {
-      crews.set(id, { id, secretHash, adminTokenHash });
+    async createAccount(row) {
+      accounts.set(row.id, row);
+    },
+    async getAccountByHandle(handleKey) {
+      return [...accounts.values()].find((a) => a.handleKey === handleKey) ?? null;
+    },
+    async getAccount(id) {
+      return accounts.get(id) ?? null;
+    },
+    async updateAccount(id, patch) {
+      const row = accounts.get(id);
+      if (row) accounts.set(id, { ...row, ...patch });
+    },
+
+    async createSession(row) {
+      sessions.set(row.tokenHash, row);
+    },
+    async getSession(tokenHash) {
+      return sessions.get(tokenHash) ?? null;
+    },
+    async deleteSession(tokenHash) {
+      sessions.delete(tokenHash);
+    },
+    async deleteSessionsFor(accountId) {
+      for (const [key, row] of sessions) if (row.accountId === accountId) sessions.delete(key);
+    },
+
+    async getAttempts(handleKey) {
+      return attempts.get(handleKey) ?? null;
+    },
+    async putAttempts(row) {
+      attempts.set(row.handleKey, row);
+    },
+    async clearAttempts(handleKey) {
+      attempts.delete(handleKey);
+    },
+
+    async getSetting(key) {
+      return settings.get(key) ?? null;
+    },
+    async putSetting(key, value) {
+      // Mirrors INSERT OR IGNORE: the first value written is the one kept.
+      if (!settings.has(key)) settings.set(key, value);
+    },
+
+    async createCrew(row) {
+      crews.set(row.id, row);
     },
     async getCrew(id) {
       return crews.get(id) ?? null;
@@ -18,48 +67,40 @@ function memoryStore(): Store {
       const crew = crews.get(id);
       if (crew) crews.set(id, { ...crew, secretHash });
     },
-    async getMember(crewId, memberId) {
-      return members.get(crewId)?.get(memberId) ?? null;
+
+    async getMember(crewId, accountId) {
+      return members.get(crewId)?.get(accountId) ?? null;
     },
     async findMemberByName(crewId, key) {
       return [...(members.get(crewId)?.values() ?? [])].find((m) => m.nameKey === key) ?? null;
-    },
-    async setMemberToken(crewId, memberId, tokenHash) {
-      const row = members.get(crewId)?.get(memberId);
-      if (row) members.get(crewId)!.set(memberId, { ...row, tokenHash });
     },
     async countMembers(crewId) {
       return members.get(crewId)?.size ?? 0;
     },
     async putMember(crewId, row) {
       const crew = members.get(crewId) ?? new Map<string, MemberRow>();
-      const before = crew.get(row.memberId);
-      // Mirrors the SQL: an empty passcode leaves the stored one alone, and a
-      // put never rebinds the token — only a claim does.
-      crew.set(row.memberId, {
-        ...row,
-        tokenHash: before?.tokenHash ?? row.tokenHash,
-        passcodeHash: row.passcodeHash || before?.passcodeHash || '',
-      });
+      crew.set(row.accountId, row);
       members.set(crewId, crew);
     },
     async listMembers(crewId) {
       return [...(members.get(crewId)?.values() ?? [])];
     },
-    async deleteMember(crewId, memberId) {
-      members.get(crewId)?.delete(memberId);
+    async deleteMember(crewId, accountId) {
+      members.get(crewId)?.delete(accountId);
     },
   };
 }
 
 let ids = 0;
+let clock = 1_700_000_000_000;
 let deps: Deps;
 
 beforeEach(() => {
   ids = 0;
+  clock = 1_700_000_000_000;
   deps = {
     store: memoryStore(),
-    now: () => 1_700_000_000_000,
+    now: () => clock,
     randomId: () => `id${++ids}`,
     // Not a real digest, but it is one-way enough to prove the rules.
     hash: async (value: string) => `hash(${value})`,
@@ -67,17 +108,16 @@ beforeEach(() => {
 });
 
 const API = 'https://crew.example';
+const SUMMARY = { name: 'Alex', daysTrained7: 3, daysTrained30: 9, goalsMet7: 2, goalsTracked7: 3, lifts: [] };
 
 function call(
   method: string,
   path: string,
-  options: { secret?: string; token?: string; body?: unknown; admin?: string; passcode?: string } = {},
+  options: { secret?: string; token?: string; body?: unknown } = {},
 ) {
   const headers: Record<string, string> = {};
   if (options.secret) headers['x-crew-secret'] = options.secret;
-  if (options.token) headers['x-member-token'] = options.token;
-  if (options.admin) headers['x-admin-token'] = options.admin;
-  if (options.passcode) headers['x-member-passcode'] = options.passcode;
+  if (options.token) headers['x-account-token'] = options.token;
 
   return handle(new Request(`${API}${path}`, {
     method,
@@ -86,400 +126,380 @@ function call(
   }), deps);
 }
 
-async function newCrew() {
-  const response = await call('POST', '/crew');
-  return (await response.json()) as { crewId: string; secret: string; adminToken: string };
+/** Sign somebody up and keep the token their phone would hold. */
+async function signUp(handleName: string, key = `key-${handleName}`, recovery = `recover-${handleName}`) {
+  const response = await call('POST', '/account', {
+    body: { handle: handleName, salt: `salt-${handleName}`, key, recovery },
+  });
+  const body = await response.json() as { accountId: string; token: string };
+  return { ...body, status: response.status };
 }
 
-const SUMMARY = { name: 'Alex', daysTrained7: 3, lifts: [{ key: 'bench', name: 'Bench', best: { weight: 225, reps: 5 } }] };
-
-describe('starting a crew', () => {
-  it('hands back an id, a secret and an admin token', async () => {
-    const response = await call('POST', '/crew');
+describe('signing up', () => {
+  it('issues a session straight away, so nobody logs in twice', async () => {
+    const response = await call('POST', '/account', {
+      body: { handle: 'alex', salt: 's', key: 'k', recovery: 'r' },
+    });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ crewId: 'id1', secret: 'id2', adminToken: 'id3' });
+    const body = await response.json() as { accountId: string; token: string; handle: string };
+    expect(body.token).toBeTruthy();
+    expect(body.handle).toBe('alex');
   });
 
-  it('never stores the admin token itself either', async () => {
-    const { crewId, adminToken } = await newCrew();
-    const stored = await deps.store.getCrew(crewId);
-    expect(stored?.adminTokenHash).toBe(`hash(${adminToken})`);
-    expect(stored?.adminTokenHash).not.toBe(adminToken);
+  it('takes the handle as the board name when none is given', async () => {
+    const { token } = await signUp('alex');
+    const me = await call('GET', '/me', { token });
+    expect((await me.json() as { displayName: string }).displayName).toBe('alex');
   });
 
-  it('never stores the secret itself', async () => {
-    const { crewId, secret } = await newCrew();
-    const stored = await deps.store.getCrew(crewId);
-    expect(stored?.secretHash).not.toBe(secret);
-    expect(stored?.secretHash).toBe(`hash(${secret})`);
+  it('refuses a handle somebody has, whatever the case', async () => {
+    await signUp('alex');
+    const response = await call('POST', '/account', {
+      body: { handle: 'ALEX', salt: 's', key: 'k', recovery: 'r' },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it('refuses a handle with spaces or punctuation in it', async () => {
+    for (const bad of ['al ex', 'al/ex', 'ab', '']) {
+      const response = await call('POST', '/account', {
+        body: { handle: bad, salt: 's', key: 'k', recovery: 'r' },
+      });
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it('never stores the key it was sent, only a hash of it', async () => {
+    await signUp('alex', 'derived-key');
+    const stored = await deps.store.getAccountByHandle('alex');
+    expect(stored?.keyHash).toBe('hash(derived-key)');
+    expect(stored?.keyHash).not.toBe('derived-key');
   });
 });
 
-describe('posting a summary', () => {
-  it('accepts one from a member of the crew', async () => {
-    const { crewId, secret } = await newCrew();
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY });
+describe('logging in', () => {
+  it('works with the right key', async () => {
+    await signUp('alex', 'derived-key');
+    const response = await call('POST', '/session', { body: { handle: 'alex', key: 'derived-key' } });
+    expect(response.status).toBe(200);
+    expect((await response.json() as { token: string }).token).toBeTruthy();
+  });
+
+  it('does not with the wrong one', async () => {
+    await signUp('alex', 'derived-key');
+    const response = await call('POST', '/session', { body: { handle: 'alex', key: 'guess' } });
+    expect(response.status).toBe(403);
+  });
+
+  it('answers a handle nobody has exactly as it answers a wrong key', async () => {
+    await signUp('alex', 'derived-key');
+    const wrongKey = await call('POST', '/session', { body: { handle: 'alex', key: 'guess' } });
+    const noSuchHandle = await call('POST', '/session', { body: { handle: 'nobody', key: 'guess' } });
+
+    expect(wrongKey.status).toBe(noSuchHandle.status);
+    expect(await wrongKey.text()).toBe(await noSuchHandle.text());
+  });
+
+  it('gives a handle nobody has a salt anyway, so it cannot be probed', async () => {
+    const unknown = await call('POST', '/account/salt', { body: { handle: 'nobody' } });
+    expect(unknown.status).toBe(200);
+    expect((await unknown.json() as { salt: string }).salt).toBeTruthy();
+  });
+
+  it('gives the same made-up salt every time, or the trick would be obvious', async () => {
+    const first = await call('POST', '/account/salt', { body: { handle: 'nobody' } });
+    const second = await call('POST', '/account/salt', { body: { handle: 'nobody' } });
+    expect(await first.text()).toBe(await second.text());
+  });
+
+  it('gives a real account its real salt', async () => {
+    await signUp('alex');
+    const response = await call('POST', '/account/salt', { body: { handle: 'ALEX' } });
+    expect((await response.json() as { salt: string }).salt).toBe('salt-alex');
+  });
+
+  it('goes quiet after ten wrong guesses', async () => {
+    await signUp('alex', 'derived-key');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await call('POST', '/session', { body: { handle: 'alex', key: 'guess' } });
+    }
+
+    const blocked = await call('POST', '/session', { body: { handle: 'alex', key: 'derived-key' } });
+    expect(blocked.status).toBe(429);
+  });
+
+  it('and starts counting again once the window is past', async () => {
+    await signUp('alex', 'derived-key');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await call('POST', '/session', { body: { handle: 'alex', key: 'guess' } });
+    }
+
+    clock += 16 * 60 * 1000;
+    const response = await call('POST', '/session', { body: { handle: 'alex', key: 'derived-key' } });
     expect(response.status).toBe(200);
   });
 
-  it('refuses without the crew secret', async () => {
-    const { crewId } = await newCrew();
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, { token: 't1', body: SUMMARY });
-    expect(response.status).toBe(401);
+  it('forgets the failures as soon as one succeeds', async () => {
+    await signUp('alex', 'derived-key');
+    await call('POST', '/session', { body: { handle: 'alex', key: 'guess' } });
+    await call('POST', '/session', { body: { handle: 'alex', key: 'derived-key' } });
+    expect(await deps.store.getAttempts('alex')).toBeNull();
   });
 
-  it('refuses with the wrong crew secret', async () => {
-    const { crewId } = await newCrew();
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, { secret: 'guess', token: 't1', body: SUMMARY });
-    expect(response.status).toBe(404);
-  });
+  it('signs out only the device that asked', async () => {
+    const first = await signUp('alex', 'derived-key');
+    const second = await call('POST', '/session', { body: { handle: 'alex', key: 'derived-key' } });
+    const secondToken = (await second.json() as { token: string }).token;
 
-  it('refuses without a member token', async () => {
-    const { crewId, secret } = await newCrew();
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, { secret, body: SUMMARY });
-    expect(response.status).toBe(401);
-  });
-
-  it('will not let one member overwrite another', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 'mine', body: SUMMARY });
-
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, {
-      secret, token: 'theirs', body: { ...SUMMARY, name: 'Impostor' },
-    });
-    expect(response.status).toBe(403);
-
-    const members = await deps.store.listMembers(crewId);
-    expect(members[0].name).toBe('Alex');
-  });
-
-  it('lets the same member post again', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY });
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: { ...SUMMARY, daysTrained7: 4 } });
-
-    const members = await deps.store.listMembers(crewId);
-    expect(members).toHaveLength(1);
-    expect(JSON.parse(members[0].summary).daysTrained7).toBe(4);
-  });
-
-  it('refuses a body that is not a summary', async () => {
-    const { crewId, secret } = await newCrew();
-    expect((await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: { lifts: [] } })).status).toBe(400);
-  });
-
-  it('refuses a summary far bigger than a summary', async () => {
-    const { crewId, secret } = await newCrew();
-    const huge = { name: 'Alex', padding: 'x'.repeat(70_000) };
-    expect((await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: huge })).status).toBe(413);
-  });
-
-  it('trims a name rather than storing an essay', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: { ...SUMMARY, name: 'A'.repeat(200) } });
-    expect((await deps.store.listMembers(crewId))[0].name).toHaveLength(40);
-  });
-
-  it('stops the crew growing past a group of friends', async () => {
-    const { crewId, secret } = await newCrew();
-    for (let i = 0; i < 30; i++) {
-      await call('PUT', `/crew/${crewId}/member/m${i}`, { secret, token: `t${i}`, body: SUMMARY });
-    }
-    const response = await call('PUT', `/crew/${crewId}/member/extra`, { secret, token: 'tx', body: SUMMARY });
-    expect(response.status).toBe(409);
+    await call('DELETE', '/session', { token: first.token });
+    expect((await call('GET', '/me', { token: first.token })).status).toBe(401);
+    expect((await call('GET', '/me', { token: secondToken })).status).toBe(200);
   });
 });
 
-describe('reading the board', () => {
-  it('returns what everyone posted', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY });
-    await call('PUT', `/crew/${crewId}/member/m2`, { secret, token: 't2', body: { ...SUMMARY, name: 'Sam' } });
+describe('the recovery code', () => {
+  it('sets a new password and signs you in', async () => {
+    await signUp('alex', 'old-key', 'the-code');
+    const response = await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's2', key: 'new-key', nextRecovery: 'next-code' },
+    });
 
-    const body = await (await call('GET', `/crew/${crewId}`, { secret })).json() as { members: Array<{ name: string }> };
-    expect(body.members.map((m) => m.name).sort()).toEqual(['Alex', 'Sam']);
+    expect(response.status).toBe(200);
+    const after = await call('POST', '/session', { body: { handle: 'alex', key: 'new-key' } });
+    expect(after.status).toBe(200);
   });
 
-  it('gives away nothing about how members prove who they are', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 'secret-token', body: SUMMARY });
+  it('retires the old password', async () => {
+    await signUp('alex', 'old-key', 'the-code');
+    await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's2', key: 'new-key', nextRecovery: 'next-code' },
+    });
 
-    const text = await (await call('GET', `/crew/${crewId}`, { secret })).text();
-    expect(text).not.toContain('secret-token');
-    expect(text).not.toContain('tokenHash');
-    expect(text).not.toContain('hash(');
+    expect((await call('POST', '/session', { body: { handle: 'alex', key: 'old-key' } })).status).toBe(403);
   });
 
-  it('refuses without the secret', async () => {
-    const { crewId } = await newCrew();
+  it('cannot be used twice', async () => {
+    await signUp('alex', 'old-key', 'the-code');
+    await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's2', key: 'new-key', nextRecovery: 'next-code' },
+    });
+
+    const again = await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's3', key: 'k3', nextRecovery: 'r3' },
+    });
+    expect(again.status).toBe(403);
+  });
+
+  // Somebody recovering an account may be doing it because a phone is gone.
+  it('signs out every device that was already signed in', async () => {
+    const before = await signUp('alex', 'old-key', 'the-code');
+    await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's2', key: 'new-key', nextRecovery: 'next-code' },
+    });
+
+    expect((await call('GET', '/me', { token: before.token })).status).toBe(401);
+  });
+
+  it('refuses a wrong code', async () => {
+    await signUp('alex', 'old-key', 'the-code');
+    const response = await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'guess', salt: 's2', key: 'k2', nextRecovery: 'r2' },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it('is rate limited the same way a password is', async () => {
+    await signUp('alex', 'old-key', 'the-code');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await call('POST', '/account/recover', {
+        body: { handle: 'alex', recovery: 'guess', salt: 's', key: 'k', nextRecovery: 'r' },
+      });
+    }
+
+    const blocked = await call('POST', '/account/recover', {
+      body: { handle: 'alex', recovery: 'the-code', salt: 's2', key: 'k2', nextRecovery: 'r2' },
+    });
+    expect(blocked.status).toBe(429);
+  });
+});
+
+describe('a crew', () => {
+  async function crewFor(token: string) {
+    const response = await call('POST', '/crew', { token });
+    return await response.json() as { crewId: string; secret: string };
+  }
+
+  it('needs an account to start', async () => {
+    expect((await call('POST', '/crew')).status).toBe(401);
+  });
+
+  it('opens to anyone holding the link', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+    expect((await call('GET', `/crew/${crewId}`, { secret })).status).toBe(200);
+  });
+
+  it('but not to a wrong one', async () => {
+    const alex = await signUp('alex');
+    const { crewId } = await crewFor(alex.token);
+    expect((await call('GET', `/crew/${crewId}`, { secret: 'guess' })).status).toBe(404);
+  });
+
+  it('takes a summary from anyone signed in who has the link', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+    const sam = await signUp('sam');
+
+    const response = await call('PUT', `/crew/${crewId}/member`, {
+      token: sam.token, secret, body: { ...SUMMARY, name: 'Sam' },
+    });
+    expect(response.status).toBe(200);
+
+    const board = await call('GET', `/crew/${crewId}`, { secret });
+    expect((await board.json() as { members: unknown[] }).members).toHaveLength(1);
+  });
+
+  it('refuses a summary from somebody not signed in', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+
+    const response = await call('PUT', `/crew/${crewId}/member`, { secret, body: SUMMARY });
+    expect(response.status).toBe(401);
+  });
+
+  // The whole point of accounts: your phones are you, not three strangers.
+  it('gives one account one row however many devices it posts from', async () => {
+    const alex = await signUp('alex', 'k');
+    const { crewId, secret } = await crewFor(alex.token);
+    const second = await call('POST', '/session', { body: { handle: 'alex', key: 'k' } });
+    const laptop = (await second.json() as { token: string }).token;
+
+    await call('PUT', `/crew/${crewId}/member`, { token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' } });
+    await call('PUT', `/crew/${crewId}/member`, { token: laptop, secret, body: { ...SUMMARY, name: 'Alex' } });
+
+    const board = await call('GET', `/crew/${crewId}`, { secret });
+    expect((await board.json() as { members: unknown[] }).members).toHaveLength(1);
+  });
+
+  it('never lets two people share a name on one board', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+    const sam = await signUp('sam');
+
+    await call('PUT', `/crew/${crewId}/member`, { token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' } });
+    const clash = await call('PUT', `/crew/${crewId}/member`, {
+      token: sam.token, secret, body: { ...SUMMARY, name: 'ALEX' },
+    });
+    expect(clash.status).toBe(409);
+  });
+
+  it('still lets you keep your own name when you post again', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+
+    await call('PUT', `/crew/${crewId}/member`, { token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' } });
+    const again = await call('PUT', `/crew/${crewId}/member`, {
+      token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' },
+    });
+    expect(again.status).toBe(200);
+  });
+
+  it('refuses a summary far bigger than one', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+
+    const response = await call('PUT', `/crew/${crewId}/member`, {
+      token: alex.token, secret, body: { ...SUMMARY, padding: 'x'.repeat(70_000) },
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it('never sends a summary to somebody without the link', async () => {
+    const alex = await signUp('alex');
+    const { crewId } = await crewFor(alex.token);
     expect((await call('GET', `/crew/${crewId}`)).status).toBe(401);
   });
 
-  it('answers the same way for a crew that does not exist as one you cannot open', async () => {
-    const { crewId } = await newCrew();
-    const wrongSecret = await call('GET', `/crew/${crewId}`, { secret: 'guess' });
-    const noSuchCrew = await call('GET', '/crew/nothinghere', { secret: 'guess' });
+  it('lets anyone leave their own row', async () => {
+    const alex = await signUp('alex');
+    const { crewId, secret } = await crewFor(alex.token);
+    const sam = await signUp('sam');
+    await call('PUT', `/crew/${crewId}/member`, { token: sam.token, secret, body: { ...SUMMARY, name: 'Sam' } });
 
-    expect(wrongSecret.status).toBe(noSuchCrew.status);
-    expect(await wrongSecret.text()).toBe(await noSuchCrew.text());
-  });
-});
-
-describe('leaving a crew', () => {
-  it('removes your row', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY });
-    await call('DELETE', `/crew/${crewId}/member/m1`, { secret, token: 't1' });
-    expect(await deps.store.listMembers(crewId)).toEqual([]);
-  });
-
-  it('cannot remove somebody else', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY });
-    expect((await call('DELETE', `/crew/${crewId}/member/m1`, { secret, token: 'other' })).status).toBe(403);
-    expect(await deps.store.listMembers(crewId)).toHaveLength(1);
-  });
-});
-
-describe('the shape of the api', () => {
-  it('answers a browser preflight', async () => {
-    const response = await call('OPTIONS', '/crew');
-    expect(response.status).toBe(204);
-    expect(response.headers.get('access-control-allow-headers')).toContain('x-crew-secret');
-  });
-
-  it('allows the app to call it from another origin', async () => {
-    expect((await call('POST', '/crew')).headers.get('access-control-allow-origin')).toBe('*');
-  });
-
-  it('has nothing at any other path', async () => {
-    expect((await call('GET', '/')).status).toBe(404);
-    expect((await call('GET', '/crew')).status).toBe(404);
-    expect((await call('POST', '/crew/x/member/y')).status).toBe(404);
-  });
-
-  it('ignores a trailing slash', async () => {
-    expect((await call('POST', '/crew/')).status).toBe(201);
+    await call('DELETE', `/crew/${crewId}/member`, { token: sam.token, secret });
+    const board = await call('GET', `/crew/${crewId}`, { secret });
+    expect((await board.json() as { members: unknown[] }).members).toHaveLength(0);
   });
 });
 
 describe('whoever started the crew', () => {
-  const SUMMARY_FOR = (name: string) => ({ ...SUMMARY, name });
+  async function crewWithBoth() {
+    const alex = await signUp('alex');
+    const response = await call('POST', '/crew', { token: alex.token });
+    const { crewId, secret } = await response.json() as { crewId: string; secret: string };
+    const sam = await signUp('sam');
 
-  it('can remove somebody else', async () => {
-    const { crewId, secret, adminToken } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY_FOR('Sam') });
-
-    const response = await call('DELETE', `/crew/${crewId}/member/m1`, { secret, admin: adminToken });
-    expect(response.status).toBe(200);
-    expect(await deps.store.listMembers(crewId)).toEqual([]);
-  });
-
-  it('and nobody else can', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY_FOR('Sam') });
-
-    const response = await call('DELETE', `/crew/${crewId}/member/m1`, { secret, admin: 'guess' });
-    expect(response.status).toBe(403);
-    expect(await deps.store.listMembers(crewId)).toHaveLength(1);
-  });
-
-  it('can rotate the link, which is what makes removing somebody stick', async () => {
-    const { crewId, secret, adminToken } = await newCrew();
-    const rotated = await call('POST', `/crew/${crewId}/rotate`, { secret, admin: adminToken });
-    expect(rotated.status).toBe(200);
-
-    const { secret: fresh } = await rotated.json() as { secret: string };
-    expect(fresh).not.toBe(secret);
-
-    // The old link stops opening the crew; the new one works.
-    expect((await call('GET', `/crew/${crewId}`, { secret })).status).toBe(404);
-    expect((await call('GET', `/crew/${crewId}`, { secret: fresh })).status).toBe(200);
-  });
-
-  it('is the only one who can rotate it', async () => {
-    const { crewId, secret } = await newCrew();
-    expect((await call('POST', `/crew/${crewId}/rotate`, { secret })).status).toBe(403);
-    expect((await call('POST', `/crew/${crewId}/rotate`, { secret, admin: 'guess' })).status).toBe(403);
-    expect((await call('GET', `/crew/${crewId}`, { secret })).status).toBe(200);
-  });
-
-  it('keeps everyone on the board through a rotation', async () => {
-    const { crewId, secret, adminToken } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: SUMMARY_FOR('Sam') });
-
-    const { secret: fresh } = await (await call('POST', `/crew/${crewId}/rotate`, { secret, admin: adminToken })).json() as { secret: string };
-    const board = await (await call('GET', `/crew/${crewId}`, { secret: fresh })).json() as { members: unknown[] };
-    expect(board.members).toHaveLength(1);
-  });
-});
-
-describe('claiming your row from another device', () => {
-  async function crewWithAlex() {
-    const crew = await newCrew();
-    await call('PUT', `/crew/${crew.crewId}/member/phone`, {
-      secret: crew.secret, token: 'phone-token', passcode: 'hunter2', body: { ...SUMMARY, name: 'Alex' },
-    });
-    return crew;
+    await call('PUT', `/crew/${crewId}/member`, { token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' } });
+    await call('PUT', `/crew/${crewId}/member`, { token: sam.token, secret, body: { ...SUMMARY, name: 'Sam' } });
+    return { crewId, secret, alex, sam };
   }
 
-  it('lets a second device take over with the name and passcode', async () => {
-    const { crewId, secret } = await crewWithAlex();
-
-    const response = await call('POST', `/crew/${crewId}/claim`, {
-      secret, token: 'laptop-token', body: { name: 'Alex', passcode: 'hunter2' },
-    });
+  it('can remove somebody else', async () => {
+    const { crewId, secret, alex, sam } = await crewWithBoth();
+    const response = await call('DELETE', `/crew/${crewId}/member/${sam.accountId}`, { token: alex.token, secret });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ memberId: 'phone' });
 
-    // The new device can post; the old token no longer can.
-    expect((await call('PUT', `/crew/${crewId}/member/phone`, { secret, token: 'laptop-token', body: { ...SUMMARY, name: 'Alex' } })).status).toBe(200);
-    expect((await call('PUT', `/crew/${crewId}/member/phone`, { secret, token: 'phone-token', body: { ...SUMMARY, name: 'Alex' } })).status).toBe(403);
+    const board = await call('GET', `/crew/${crewId}`, { secret });
+    expect((await board.json() as { members: { name: string }[] }).members.map((m) => m.name)).toEqual(['Alex']);
   });
 
-  it('ignores case and stray spaces in the name', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const response = await call('POST', `/crew/${crewId}/claim`, {
-      secret, token: 'laptop', body: { name: '  alex ', passcode: 'hunter2' },
-    });
-    expect(response.status).toBe(200);
-  });
-
-  it('refuses a wrong passcode', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const response = await call('POST', `/crew/${crewId}/claim`, {
-      secret, token: 'laptop', body: { name: 'Alex', passcode: 'guess' },
-    });
-    expect(response.status).toBe(403);
-  });
-
-  it('answers a name nobody has exactly as it answers a wrong passcode', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const wrongCode = await call('POST', `/crew/${crewId}/claim`, { secret, token: 'l', body: { name: 'Alex', passcode: 'guess' } });
-    const noSuchName = await call('POST', `/crew/${crewId}/claim`, { secret, token: 'l', body: { name: 'Nobody', passcode: 'guess' } });
-
-    expect(wrongCode.status).toBe(noSuchName.status);
-    expect(await wrongCode.text()).toBe(await noSuchName.text());
-  });
-
-  it('refuses when no passcode was ever set', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 't1', body: { ...SUMMARY, name: 'Nopass' } });
-
-    const response = await call('POST', `/crew/${crewId}/claim`, {
-      secret, token: 'laptop', body: { name: 'Nopass', passcode: '' },
-    });
+  it('cannot remove themselves by that route', async () => {
+    const { crewId, secret, alex } = await crewWithBoth();
+    const response = await call('DELETE', `/crew/${crewId}/member/${alex.accountId}`, { token: alex.token, secret });
     expect(response.status).toBe(400);
   });
 
-  it('keeps the passcode when an ordinary post carries none', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    await call('PUT', `/crew/${crewId}/member/phone`, { secret, token: 'phone-token', body: { ...SUMMARY, name: 'Alex' } });
-
-    const response = await call('POST', `/crew/${crewId}/claim`, {
-      secret, token: 'laptop', body: { name: 'Alex', passcode: 'hunter2' },
-    });
-    expect(response.status).toBe(200);
-  });
-
-  it('never lets a name be taken twice, or claiming would be ambiguous', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const response = await call('PUT', `/crew/${crewId}/member/other`, {
-      secret, token: 'other-token', body: { ...SUMMARY, name: 'ALEX' },
-    });
-    expect(response.status).toBe(409);
-  });
-
-  it('still lets you keep your own name when you post again', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const response = await call('PUT', `/crew/${crewId}/member/phone`, {
-      secret, token: 'phone-token', body: { ...SUMMARY, name: 'Alex' },
-    });
-    expect(response.status).toBe(200);
-  });
-
-  it('folds a name the same way the store does', () => {
-    expect(nameKey('  Alex   Smith ')).toBe('alex smith');
-  });
-
-  // A claim rebinds the token to the new device. If that were the only proof
-  // a write could offer, the first phone would be locked out of its own row
-  // for good — silently, since posting never reports a failure.
-  describe('after a claim, the first device', () => {
-    async function claimed() {
-      const crew = await crewWithAlex();
-      await call('POST', `/crew/${crew.crewId}/claim`, {
-        secret: crew.secret, token: 'laptop-token', body: { name: 'Alex', passcode: 'hunter2' },
-      });
-      return crew;
-    }
-
-    it('can still post with its passcode', async () => {
-      const { crewId, secret } = await claimed();
-      const response = await call('PUT', `/crew/${crewId}/member/phone`, {
-        secret, token: 'phone-token', passcode: 'hunter2', body: { ...SUMMARY, name: 'Alex' },
-      });
-      expect(response.status).toBe(200);
-    });
-
-    it('cannot post without it', async () => {
-      const { crewId, secret } = await claimed();
-      const response = await call('PUT', `/crew/${crewId}/member/phone`, {
-        secret, token: 'phone-token', body: { ...SUMMARY, name: 'Alex' },
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('can still leave', async () => {
-      const { crewId, secret } = await claimed();
-      const response = await call('DELETE', `/crew/${crewId}/member/phone`, {
-        secret, token: 'phone-token', passcode: 'hunter2',
-      });
-      expect(response.status).toBe(200);
-
-      const board = await call('GET', `/crew/${crewId}`, { secret });
-      expect((await board.json() as { members: unknown[] }).members).toHaveLength(0);
-    });
-
-    it('and the device that claimed it still posts on its token alone', async () => {
-      const { crewId, secret } = await claimed();
-      const response = await call('PUT', `/crew/${crewId}/member/phone`, {
-        secret, token: 'laptop-token', body: { ...SUMMARY, name: 'Alex' },
-      });
-      expect(response.status).toBe(200);
-    });
-  });
-
-  it('never lets a passcode stand in for a row that has none', async () => {
-    const { crewId, secret } = await newCrew();
-    await call('PUT', `/crew/${crewId}/member/m1`, { secret, token: 'mine', body: { ...SUMMARY, name: 'Nopass' } });
-
-    const response = await call('PUT', `/crew/${crewId}/member/m1`, {
-      secret, token: 'stranger', passcode: '', body: { ...SUMMARY, name: 'Nopass' },
-    });
+  it('is the only one who can remove anybody', async () => {
+    const { crewId, secret, alex, sam } = await crewWithBoth();
+    const response = await call('DELETE', `/crew/${crewId}/member/${alex.accountId}`, { token: sam.token, secret });
     expect(response.status).toBe(403);
   });
 
-  it('refuses a wrong passcode from a stranger', async () => {
-    const { crewId, secret } = await crewWithAlex();
-    const response = await call('PUT', `/crew/${crewId}/member/phone`, {
-      secret, token: 'stranger', passcode: 'guess', body: { ...SUMMARY, name: 'Alex' },
-    });
-    expect(response.status).toBe(403);
+  it('can change the link, which is what makes a removal stick', async () => {
+    const { crewId, secret, alex } = await crewWithBoth();
+    const response = await call('POST', `/crew/${crewId}/rotate`, { token: alex.token, secret });
+    expect(response.status).toBe(200);
+
+    const { secret: next } = await response.json() as { secret: string };
+    expect((await call('GET', `/crew/${crewId}`, { secret })).status).toBe(404);
+    expect((await call('GET', `/crew/${crewId}`, { secret: next })).status).toBe(200);
+  });
+
+  it('and nobody else can', async () => {
+    const { crewId, secret, sam } = await crewWithBoth();
+    expect((await call('POST', `/crew/${crewId}/rotate`, { token: sam.token, secret })).status).toBe(403);
+  });
+
+  it('is named on the board, so the app knows who may remove', async () => {
+    const { crewId, secret, alex } = await crewWithBoth();
+    const board = await call('GET', `/crew/${crewId}`, { secret });
+    expect((await board.json() as { ownerAccountId: string }).ownerAccountId).toBe(alex.accountId);
   });
 });
 
 describe('the browser can actually send what the client sends', () => {
   // A header outside the simple set needs naming in the preflight, or the
-  // browser refuses the request before the worker ever sees it. Both of these
-  // arrived with the passcode work and neither is exercised by the smoke
-  // test, which is same-origin and so never preflights.
-  it('allows the passcode and admin headers', async () => {
+  // browser refuses the request before the worker ever sees it.
+  it('allows the crew secret and the account token', async () => {
     const response = await handle(new Request(`${API}/crew`, { method: 'OPTIONS' }), deps);
     const allowed = response.headers.get('access-control-allow-headers') ?? '';
 
-    for (const header of ['content-type', 'x-crew-secret', 'x-member-token', 'x-member-passcode', 'x-admin-token']) {
+    for (const header of ['content-type', 'x-crew-secret', 'x-account-token']) {
       expect(allowed).toContain(header);
     }
+  });
+
+  it('folds a name the same way the store does', () => {
+    expect(nameKey('  Alex   Smith ')).toBe('alex smith');
   });
 });

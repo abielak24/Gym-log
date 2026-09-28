@@ -76,6 +76,38 @@ body {
 
 .tab-on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 
+/* Nothing to navigate to until there is an account. */
+body.signed-out .topbar { display: none; }
+
+.auth-form { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+.auth-form .search { width: 100%; }
+
+.recovery-code {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  /* It gets copied onto paper, so it has to be selectable and to wrap. */
+  word-break: break-all;
+  user-select: all;
+}
+
+.confirm-saved {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 16px 0;
+  color: var(--ink-dim);
+  font-size: 15px;
+}
+
+.confirm-saved input { width: 20px; height: 20px; flex: none; }
+
 #view {
   padding: 0 var(--pad) calc(var(--bar-height) + var(--keyboard-inset) + env(safe-area-inset-bottom) + 24px);
   max-width: 720px;
@@ -337,6 +369,7 @@ body {
 .backup-box { margin: 28px 0 0; padding-top: 18px; border-top: 1px solid color-mix(in srgb, var(--ink) 9%, transparent); }
 .backup-box h2 { margin: 0 0 4px; font-size: 15px; }
 .backup-box p { margin: 0 0 12px; font-size: 13px; color: var(--ink-dim); }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .backup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .empty { color: var(--ink-faint); font-size: 15px; padding: 24px 0; }

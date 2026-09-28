@@ -8,6 +8,7 @@
 
 import { backupNow, restoreFrom } from './backup';
 import { friendlyDate } from './format';
+import { logOut } from './auth';
 import * as store from './store';
 
 export function banner(text: string, kind: string): HTMLElement {
@@ -106,6 +107,47 @@ export function backupPanel(): HTMLElement {
 
   box.append(row);
   if (!store.isEmpty()) box.append(startFresh());
+  return box;
+}
+
+/**
+ * Who this device is signed in as, and the way out.
+ *
+ * Signing out leaves the log where it is. Somebody on a shared phone would
+ * expect it gone, but there is no copy anywhere else yet, so erasing it here
+ * would be deleting the only one. "Start fresh" is the deliberate way.
+ */
+export function accountPanel(): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'backup-box account-box';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Account';
+  box.append(title);
+
+  const who = document.createElement('p');
+  const account = store.account();
+  who.textContent = account
+    ? `Signed in as ${account.handle}.`
+    : 'Not signed in.';
+  box.append(who);
+
+  const kept = document.createElement('p');
+  kept.className = 'note';
+  kept.textContent = 'Signing out leaves this log on the phone \u2014 it is still the only copy, '
+    + 'so save one first if you are handing the phone on.';
+  box.append(kept);
+
+  const row = document.createElement('div');
+  row.className = 'account-actions';
+  row.append(action('Sign out', () => {
+    void logOut().then(() => {
+      location.hash = '#/home';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+  }));
+  box.append(row);
+
   return box;
 }
 

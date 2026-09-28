@@ -8,7 +8,7 @@
 
 import { friendlyDate, thousands } from './format';
 import {
-  createCrew, fetchBoard, isConfigured, joinCrew, joinLink, leaveCrew, logIn, mySummary,
+  createCrew, fetchBoard, isConfigured, joinCrew, joinLink, leaveCrew, mySummary,
   peekBoard, postSummary, removeMember, rotateLink,
   type BoardMember,
 } from './crew';
@@ -55,21 +55,15 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   const wrap = document.createElement('div');
 
   wrap.append(note(
-    'A crew is a link you send to friends. Opening it gives them this app with their own empty log, and puts them on the board with you.',
+    'A crew is a link you send to friends. Opening it puts them on the board with you, '
+    + 'under whatever account they sign in with.',
   ));
   wrap.append(privacyNote());
 
   const form = document.createElement('form');
   form.className = 'add-exercise';
 
-  const name = document.createElement('input');
-  name.type = 'text';
-  name.className = 'search';
-  name.placeholder = 'Your name on the board';
-  name.autocapitalize = 'words';
-  name.setAttribute('aria-label', 'Your name on the board');
-
-  const passcode = passcodeField();
+  const name = nameField();
 
   const create = document.createElement('button');
   create.type = 'submit';
@@ -79,16 +73,15 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const chosen = name.value.trim();
-    const code = passcode.value.trim();
-    if (!chosen || !code) {
-      toast('A name and a passcode, so you can pick this up on another device.');
+    if (!chosen) {
+      toast('A name for the board.');
       return;
     }
 
     const at = location.hash;
     create.disabled = true;
-    create.textContent = 'Starting…';
-    void createCrew(chosen, code)
+    create.textContent = 'Starting\u2026';
+    void createCrew(chosen)
       .then(() => stillHere(at, () => renderCrew(root)))
       .catch((error: Error) => {
         create.disabled = false;
@@ -98,27 +91,26 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   });
 
   form.append(name, create);
-  wrap.append(form, passcode, passcodeNote());
+  wrap.append(form);
   wrap.append(note('Already have a link from a friend? Open it and you will land here, in their crew.'));
   return wrap;
 }
 
-function passcodeField(): HTMLInputElement {
+/**
+ * The name on the board.
+ *
+ * Not the handle you sign in with: people want to be "Alex" to their friends
+ * whatever they had to type to get an account.
+ */
+function nameField(): HTMLInputElement {
   const input = document.createElement('input');
-  input.type = 'password';
+  input.type = 'text';
   input.className = 'search';
-  input.placeholder = 'A passcode';
-  input.autocapitalize = 'none';
-  input.autocomplete = 'new-password';
-  input.setAttribute('aria-label', 'Your passcode');
+  input.placeholder = 'Your name on the board';
+  input.autocapitalize = 'words';
+  input.value = store.crew()?.name ?? store.account()?.displayName ?? '';
+  input.setAttribute('aria-label', 'Your name on the board');
   return input;
-}
-
-function passcodeNote(): HTMLElement {
-  return note(
-    'The passcode is how you take your place on the board back if you get a new phone, '
-    + 'or use this crew from a second device. It does not protect your log, which never leaves this phone.',
-  );
 }
 
 function privacyNote(): HTMLElement {
@@ -137,7 +129,7 @@ function privacyNote(): HTMLElement {
 
 function board(root: HTMLElement): HTMLElement {
   const wrap = document.createElement('div');
-  const crew = store.crew()!;
+
   const at = location.hash;
 
   wrap.append(shareRow());
@@ -214,7 +206,7 @@ function board(root: HTMLElement): HTMLElement {
     }
 
     for (const member of [...cached.members].sort((a, b) => b.updatedAt - a.updatedAt)) {
-      list.append(memberRow(member, member.memberId === crew.memberId, root, drawList));
+      list.append(memberRow(member, member.memberId === store.account()?.id, root, drawList));
     }
     when.textContent = `As of ${new Date(cached.fetchedAt).toLocaleString()}`;
   };
@@ -484,24 +476,19 @@ function settings(root: HTMLElement): HTMLElement {
  * Opening a join link.
  *
  * The link is sent around, re-sent and re-opened, so this screen's first job
- * is *not* signing somebody up. A phone already in the crew goes straight to
- * the board; a person already on the board logs in to their row; only
- * somebody genuinely new gets a form that creates one. Getting this wrong
- * put a second row on the board every time a name was typed differently.
+ * is not signing anybody up. Who you are is your account; this only decides
+ * which board you are on, and a phone already in the crew skips it entirely.
  */
 export function renderJoin(root: HTMLElement, crewId: string, secret: string): void {
   const mine = store.crew();
 
-  // This phone is already in this crew. The link is not an invitation any
-  // more, and a form here is exactly how a duplicate gets made.
   if (mine && mine.id === crewId) {
     // Opening the current link also repairs a phone left holding the old one
     // after a rotation, which otherwise just watched the board go stale.
     if (mine.secret !== secret) store.updateCrew({ secret });
-    // And re-posts, because this phone may have been removed from the board
-    // while holding on to the crew. Being handed the new link is permission
-    // to be back on it, so put the row back rather than showing a board the
-    // person is missing from.
+    // And re-posts, because this account may have been removed from the
+    // board while still holding the crew. Being handed the new link is
+    // permission to be back on it.
     void postSummary(true).catch(() => {});
     location.hash = '#/friends';
     return;
@@ -526,26 +513,44 @@ export function renderJoin(root: HTMLElement, crewId: string, secret: string): v
       return;
     }
 
-    // Offline, or sharing is not set up. Nothing to log in against, so the
-    // form is all that is left - and it says why it cannot do better.
+    heading.textContent = 'Join this crew';
+    const parts: Node[] = [];
+
+    const switching = store.crew();
+    if (switching) {
+      const bar = document.createElement('div');
+      bar.className = 'banner banner-warn';
+      const text = document.createElement('span');
+      text.textContent = `You are already on a board as ${switching.name}. `
+        + 'Joining this one leaves that board and comes over to this one.';
+      bar.append(text);
+      parts.push(bar);
+    }
+
     if (result === 'failed') {
-      heading.textContent = 'Join this crew';
-      wrap.replaceChildren(
-        note('Could not reach the board, so there is nobody to log in as yet. '
-          + 'If you are already on this board, wait until you are back online rather than joining again here \u2014 '
-          + 'joining under a different name would put you on it twice.'),
-        joinForm(crewId, secret),
-      );
-      return;
+      parts.push(note('Could not reach that board, so there is nobody to show yet. It will still let you join.'));
+    } else if (result.length > 0) {
+      parts.push(note('Already on this board:'));
+      const list = document.createElement('ul');
+      list.className = 'board-list';
+      for (const member of [...result].sort((a, b) => a.name.localeCompare(b.name))) {
+        const row = document.createElement('li');
+        row.className = 'board-row';
+        const name = document.createElement('span');
+        name.className = 'board-name';
+        name.textContent = member.name;
+        const when = document.createElement('span');
+        when.className = 'board-when';
+        when.textContent = `updated ${relative(member.updatedAt)}`;
+        row.append(name, when);
+        list.append(row);
+      }
+      parts.push(list);
     }
 
-    if (result.length === 0) {
-      heading.textContent = 'Join this crew';
-      wrap.replaceChildren(joinForm(crewId, secret));
-      return;
-    }
-
-    wrap.replaceChildren(logInOrJoin(crewId, secret, result, heading));
+    parts.push(privacyNote());
+    parts.push(joinForm(crewId, secret));
+    wrap.replaceChildren(...parts);
   }));
 }
 
@@ -569,163 +574,13 @@ function deadLink(): HTMLElement {
   return wrap;
 }
 
-/**
- * Who is already here, and the two ways to proceed.
- *
- * Logging in leads, because on a link that has been round a group of friends
- * the returning person is the common case and the expensive one to get wrong.
- */
-function logInOrJoin(
-  crewId: string,
-  secret: string,
-  members: BoardMember[],
-  heading: HTMLElement,
-): HTMLElement {
-  const wrap = document.createElement('div');
-
-  const showLogin = () => {
-    heading.textContent = 'Log in';
-    const parts: (HTMLElement | Node)[] = [];
-
-    const switching = store.crew();
-    if (switching) {
-      const bar = document.createElement('div');
-      bar.className = 'banner banner-warn';
-      const text = document.createElement('span');
-      text.textContent = `This phone is already in a crew as ${switching.name}. `
-        + 'Logging in or joining here leaves that board and comes over to this one.';
-      bar.append(text);
-      parts.push(bar);
-    }
-
-    parts.push(note('If you are already on this board, that is you below \u2014 log in and this phone takes '
-      + 'over your row, rather than adding a second one.'));
-
-    const list = document.createElement('ul');
-    list.className = 'board-list';
-    for (const member of [...members].sort((a, b) => a.name.localeCompare(b.name))) {
-      list.append(logInRow(member, crewId, secret));
-    }
-    parts.push(list);
-
-    parts.push(note('Logging in puts you back on the board. Your workouts live on the phone that wrote them, '
-      + 'so this one starts with an empty log \u2014 bring your history over with Restore, from a backup.'));
-    parts.push(backTo(showJoin, 'I am new here'));
-
-    wrap.replaceChildren(...parts);
-  };
-
-  const showJoin = () => {
-    heading.textContent = 'Join this crew';
-    wrap.replaceChildren(
-      note('You will get your own log, which stays on this phone, and a place on the board.'),
-      privacyNote(),
-      joinForm(crewId, secret),
-      backTo(showLogin, 'Back to logging in'),
-    );
-  };
-
-  showLogin();
-  return wrap;
-}
-
-/** One person on the board, and the passcode that proves you are them. */
-function logInRow(member: BoardMember, crewId: string, secret: string): HTMLLIElement {
-  const row = document.createElement('li');
-  row.className = 'board-row';
-
-  const idle = () => {
-    row.replaceChildren();
-
-    const name = document.createElement('span');
-    name.className = 'board-name';
-    name.textContent = member.name;
-
-    const when = document.createElement('span');
-    when.className = 'board-when';
-    when.textContent = `updated ${relative(member.updatedAt)}`;
-
-    const pick = document.createElement('button');
-    pick.type = 'button';
-    pick.className = 'btn btn-ghost';
-    pick.textContent = 'This is me';
-    pick.addEventListener('click', asking);
-
-    row.append(name, when, pick);
-  };
-
-  const asking = () => {
-    row.replaceChildren();
-
-    const name = document.createElement('span');
-    name.className = 'board-name';
-    name.textContent = member.name;
-
-    const form = document.createElement('form');
-    form.className = 'add-exercise';
-
-    const passcode = passcodeField();
-    passcode.autocomplete = 'current-password';
-
-    const go = document.createElement('button');
-    go.type = 'submit';
-    go.className = 'btn btn-primary';
-    go.textContent = 'Log in';
-
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      const code = passcode.value.trim();
-      if (!code) {
-        toast('The passcode you chose when you joined.');
-        return;
-      }
-
-      go.disabled = true;
-      go.textContent = 'Logging in\u2026';
-      void logIn(crewId, secret, member.name, code)
-        .then(() => {
-          location.hash = '#/friends';
-        })
-        .catch(() => {
-          go.disabled = false;
-          go.textContent = 'Log in';
-          toast(`That is not the passcode for ${member.name}.`);
-        });
-    });
-
-    form.append(passcode, go);
-    row.append(name, form, backTo(idle, 'Not me'));
-    passcode.focus();
-  };
-
-  idle();
-  return row;
-}
-
-function backTo(go: () => void, label: string): HTMLElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'btn btn-ghost';
-  button.textContent = label;
-  button.addEventListener('click', go);
-  return button;
-}
-
-/** Creating a row, for somebody who really has not been here before. */
 function joinForm(crewId: string, secret: string): HTMLElement {
   const wrap = document.createElement('div');
 
   const form = document.createElement('form');
   form.className = 'add-exercise';
 
-  const name = document.createElement('input');
-  name.type = 'text';
-  name.className = 'search';
-  name.placeholder = 'Your name on the board';
-  name.autocapitalize = 'words';
-  name.setAttribute('aria-label', 'Your name on the board');
-
-  const passcode = passcodeField();
+  const name = nameField();
 
   const join = document.createElement('button');
   join.type = 'submit';
@@ -735,15 +590,14 @@ function joinForm(crewId: string, secret: string): HTMLElement {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const chosen = name.value.trim();
-    const code = passcode.value.trim();
-    if (!chosen || !code) {
-      toast('A name and a passcode, so you can log back in on another device.');
+    if (!chosen) {
+      toast('A name for the board.');
       return;
     }
 
     join.disabled = true;
     join.textContent = 'Joining\u2026';
-    void joinCrew(crewId, secret, chosen, code)
+    void joinCrew(crewId, secret, chosen)
       .then(() => {
         location.hash = '#/friends';
       })
@@ -751,14 +605,14 @@ function joinForm(crewId: string, secret: string): HTMLElement {
         join.disabled = false;
         join.textContent = 'Join';
         // The likeliest failure by far, and the one worth explaining.
-        toast(error.message.includes('name and passcode')
-          ? `Somebody on that board is already called ${chosen}. If that is you, go back and log in as them; otherwise pick another name.`
+        toast(error.message.includes('name is taken')
+          ? `Somebody on that board is already called ${chosen}. Pick another name.`
           : `Could not join: ${error.message}`);
       });
   });
 
   form.append(name, join);
-  wrap.append(form, passcode, passcodeNote());
+  wrap.append(form);
 
   const skip = document.createElement('a');
   skip.className = 'btn btn-ghost';

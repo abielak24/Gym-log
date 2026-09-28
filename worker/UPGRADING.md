@@ -1,188 +1,100 @@
-# Upgrading a live crew worker
+# Moving a live worker onto accounts
 
-Two jobs, both in the Cloudflare dashboard, in this order:
+Two jobs in the Cloudflare dashboard, in this order:
 
-1. **Add three columns to the database** (five minutes)
+1. **Rebuild the database** (five minutes)
 2. **Replace the worker's code** (five minutes)
 
-Order matters. The new code writes columns that do not exist yet, so
-deploying it first gives every request a 500. The other way round is safe:
-the old code simply ignores the new columns until you replace it.
+Order matters. The new code writes tables that do not exist yet, so
+deploying it first gives every request a 500.
 
-Cloudflare renames things in this dashboard fairly often. Where a label
-below does not match what you see, **Ctrl K** (⌘ K on a Mac) opens a search
-box that will take you to the right page by name.
+**This wipes the boards.** There is no migration: the old rows had no
+accounts in them, members were keyed by a device token, and crews had an
+admin token rather than an owner. None of that can be invented after the
+fact. Nobody's *log* is touched by any of this — logs live on phones and
+this never held one — but every crew and every board row goes, and everyone
+signs up again afterwards.
+
+Where a label below does not match what you see, **Ctrl K** (⌘ K) opens a
+search box that will get you to the page by name.
 
 ---
 
-## Job 1 — add the three columns
+## Job 1 — rebuild the database
 
-### 1.1 Open the database
+**1.1** Go to **https://dash.cloudflare.com/?to=/:account/workers/d1** and
+click **gym-log-crew**. (The `:account` is not a typo — Cloudflare fills your
+account in.)
 
-Go to **https://dash.cloudflare.com/?to=/:account/workers/d1**
+**1.2** Open its **Console** tab.
 
-That `:account` is not a typo — Cloudflare fills your account in. If it
-lands you on an account picker, choose yours and you will arrive.
-
-You should see a list with **gym-log-crew** in it. Click it.
-
-### 1.2 Open the Console tab
-
-Along the top of the database's page are tabs — **Metrics**, **Tables**,
-**Console**, **Settings** or similar. Click **Console**.
-
-You get a box to type SQL into and a **Execute** / **Run** button under it.
-
-### 1.3 Run three statements, one at a time
-
-This is the part that matters: **do not paste all three at once.** The
-console stops at the first error, and two of these may already error
-harmlessly, which would silently skip the ones after.
-
-Paste this, run it:
+**1.3** Drop the two old tables, **one at a time** — the console stops at the
+first error, and a table that was never there raises one:
 
 ```sql
-ALTER TABLE crews ADD COLUMN admin_token_hash TEXT NOT NULL DEFAULT '';
+DROP TABLE IF EXISTS members;
+```
+```sql
+DROP TABLE IF EXISTS crews;
 ```
 
-Clear the box. Paste this, run it:
+**1.4** Now paste the whole of [`schema.sql`](schema.sql) and run it. This
+one **can** go in as a block: every statement is `IF NOT EXISTS`, so it is
+safe over itself.
+
+Copy it from
+**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/schema.sql**
+
+**1.5 Check it took.** Still in the console:
 
 ```sql
-ALTER TABLE members ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';
+SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;
 ```
 
-Clear the box. Paste this, run it:
-
-```sql
-ALTER TABLE members ADD COLUMN name_key TEXT NOT NULL DEFAULT '';
-```
-
-**What the answers mean:**
-
-| It says | It means |
-| --- | --- |
-| success, 0 rows | done |
-| `duplicate column name: …` | that column already exists — fine, move on |
-| `no such table: crews` | you are in the wrong database; go back to 1.1 |
-
-Nothing here touches existing rows. Every crew and every member keeps its
-name, its summary and its place on the board.
-
-### 1.4 Check it worked
-
-In the same console, run:
-
-```sql
-SELECT name FROM pragma_table_info('members');
-```
-
-You want **passcode_hash** and **name_key** in that list. Then:
-
-```sql
-SELECT name FROM pragma_table_info('crews');
-```
-
-You want **admin_token_hash**. If all three are there, job 1 is done.
+You want six: **accounts**, **attempts**, **crews**, **members**,
+**sessions**, **settings**.
 
 ---
 
 ## Job 2 — replace the worker's code
 
-### 2.1 Copy the new code
+**2.1** Open
+**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/paste-into-dashboard.js**,
+select all, copy.
 
-Open **https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/paste-into-dashboard.js**
+**2.2** Go to **https://dash.cloudflare.com/?to=/:account/workers-and-pages**
+→ **gym-log-crew** → **Edit code** (older dashboards: **Quick edit**, or
+under the **···** menu).
 
-That is the plain-text version — no line numbers, nothing to trip over.
-Select all (**Ctrl A** / **⌘ A**) and copy (**Ctrl C** / **⌘ C**). It is
-about 270 lines; make sure you have the whole thing, ending with a `}`.
+**2.3** Select all in the editor and paste over it. The old code must be gone
+entirely.
 
-### 2.2 Open the worker's editor
+**2.4** **Deploy**.
 
-Go to **https://dash.cloudflare.com/?to=/:account/workers-and-pages**
-
-Click **gym-log-crew** in the list. On the worker's page, find **Edit
-code** — recently a button near the top right; on older dashboards it is
-**Quick edit**, or lives under the **···** menu next to Deploy.
-
-You land in a code editor with the current worker in it.
-
-### 2.3 Paste over it
-
-Click inside the editor, **select all**, **paste**. The old code must be
-gone entirely — not pasted above or below it.
-
-### 2.4 Deploy
-
-Click **Deploy** (top right, sometimes **Save and deploy**). Wait for it to
-confirm.
-
-### 2.5 Check the binding survived
-
-The worker needs its database attached. In the worker's **Settings →
-Bindings** (older dashboards: **Settings → Variables**), there should be a
-**D1 database binding** with:
-
-- Variable name: **DB** — exactly that, capitals, no spaces
-- Database: **gym-log-crew**
-
-If it is there, leave it alone. If it is missing, add it and **Deploy**
+**2.5** Check **Settings → Bindings** still has a D1 binding named exactly
+**DB** pointing at **gym-log-crew**. If it is missing, add it and deploy
 again.
-
-### 2.6 Check the new code is actually live
-
-The quickest check needs no console, and tests the thing you care about
-anyway. In the app's Friends tab: **Leave crew**, **Start a crew**, copy the
-link, open it in a private window and join under a different name and
-passcode. Back on your own screen, **Refresh**.
-
-- **A Remove control next to their row** — the new code is live. The admin
-  token only exists in the new code, so no old worker can produce one.
-- **No Remove control** — the old code is still running. The paste or the
-  deploy did not take; go back to 2.2.
-- **Starting a crew fails outright** — job 1 did not finish. The new code is
-  writing a column the database does not have yet.
-
-If you would rather check the wire directly, this goes in **your browser's
-developer console** — Chrome or Edge, `F12` (`⌥⌘J` on a Mac), **Console**
-tab; Safari needs Settings → Advanced → "Show features for web developers"
-turned on first. It is JavaScript, and will not run anywhere else:
-
-```js
-fetch('https://gym-log-crew.abielak24.workers.dev/crew', { method: 'OPTIONS' })
-  .then((r) => console.log(r.headers.get('access-control-allow-headers')));
-```
-
-It should print a list containing **x-member-passcode** and
-**x-admin-token**.
-
-> **Not the D1 console.** The SQL box in job 1 understands SQL and nothing
-> else; a line of JavaScript pasted there comes back as
-> `near "fetch": syntax error at offset 0: SQLITE_ERROR`. Harmless — a
-> statement that fails there changes nothing — but it is not the check.
 
 ---
 
-## Then: start a fresh crew
+## Then check it, in the app
 
-**Your existing crew has no owner, and cannot be given one.** The admin
-token is generated once, when a crew is created, and handed only to the
-phone that created it — there is deliberately no copy anywhere else, which
-is also why nobody can steal it. A crew made before this upgrade has an
-empty one, so no phone can prove it owns that crew: no removing members, no
-changing the link.
+Open the app. It should show **Create an account** — that screen existing at
+all is the proof the new code is live, since the old worker had nothing to
+sign in to.
 
-So in the Friends tab, **Leave crew**, then **Start a crew**, and send the
-new link round. You lose nothing but the board itself — everyone's workouts
-are on their own phones and are not touched by this.
+1. Make an account. Handle, password, password again.
+2. You are shown a **recovery code**. Save it somewhere that is not the
+   phone; it is the only way back in if you forget the password, and nobody
+   can look it up for you. Tick the box and continue.
+3. The app opens on your log, exactly as before.
+4. Friends tab → **Start a crew** → copy the link.
+5. Open the link in a private window. It should ask for an account first and
+   say a friend invited you, then drop you straight into the crew once you
+   have made one.
+6. Join under a different board name. Two rows.
+7. Back on your own screen, **Refresh**. There should be a **Remove** control
+   next to their row, because you own the crew.
 
-## What to try once it is up
-
-- Start a crew, send yourself the link, open it in a private window, join
-  with a different name and a passcode. Two rows on the board.
-- On your own phone, **Remove** that member. It should ask whether to change
-  the link too, and say what that costs.
-- Take the removal with the link change. The private window should say the
-  link has changed, rather than quietly going stale.
-- Open the new link in a third window, join with the **same name and
-  passcode** as before. It should take over that row rather than making a
-  second one — and the original device should carry on posting to it.
+If **Create an account** fails, the worker cannot reach the database — that
+is job 1 or the `DB` binding, not the code.

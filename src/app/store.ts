@@ -1,9 +1,11 @@
 /**
  * Where the log lives: this device, and nowhere else.
  *
- * There is no account and no server. That is the point — it works in a
- * basement gym with no signal — but it also means the export in `backup.ts`
- * is the only copy that survives a lost phone, so the app nags about it.
+ * There is an account, but it does not hold the log — it is the front door
+ * and the identity on a board, nothing more. The log itself is still only
+ * here, which is the point (it works in a basement gym with no signal) and
+ * also why the export in `backup.ts` is the only copy that survives a lost
+ * phone, and why the app nags about it.
  */
 
 import type { Session, Template, TemplateOverride } from '../core/types';
@@ -32,6 +34,8 @@ interface Stored {
   daily: DailyLog;
   /** Tracker days that came from the sample data, so they can be cleared. */
   sampleDaily: string[];
+  /** Who is signed in on this device. Nothing opens without one. */
+  account: Account | null;
   /** This phone's place in a crew, if it is in one. */
   crew: Crew | null;
   /** Sharing stopped without leaving the crew. */
@@ -44,16 +48,23 @@ interface Stored {
   lastPosted: string;
 }
 
+export interface Account {
+  id: string;
+  /** What you type to sign in. */
+  handle: string;
+  /** What friends see on a board. */
+  displayName: string;
+  /** This device's session. Hashed on the server; never the password. */
+  token: string;
+}
+
 export interface Crew {
   id: string;
   secret: string;
-  memberId: string;
-  token: string;
+  /** The name on the board, which starts as the account's. */
   name: string;
-  /** Only the phone that started the crew holds this. */
-  adminToken?: string;
-  /** Set at join, so this row can be claimed from another device. */
-  passcode?: string;
+  /** Learned from the board: who may remove people and change the link. */
+  ownerAccountId?: string;
 }
 
 const EMPTY: Stored = {
@@ -65,6 +76,7 @@ const EMPTY: Stored = {
   starred: [],
   daily: {},
   sampleDaily: [],
+  account: null,
   crew: null,
   crewPaused: false,
   hiddenFromCrew: [],
@@ -223,9 +235,41 @@ export function updateCrew(patch: Partial<Crew>): void {
   emit();
 }
 
-/** Only the phone that started the crew holds an admin token. */
+/** Whoever created the crew, which is an account rather than a device. */
 export function isCrewAdmin(): boolean {
-  return Boolean(state.crew?.adminToken);
+  const owner = state.crew?.ownerAccountId;
+  return Boolean(owner && owner === state.account?.id);
+}
+
+export function account(): Account | null {
+  return state.account;
+}
+
+export function setAccount(next: Account): void {
+  state = { ...state, account: next };
+  persist();
+  emit();
+}
+
+export function updateAccount(patch: Partial<Account>): void {
+  if (!state.account) return;
+  state = { ...state, account: { ...state.account, ...patch } };
+  persist();
+  emit();
+}
+
+/**
+ * Signing out.
+ *
+ * The log stays put. Somebody signing out on a shared phone would expect it
+ * gone, but nothing about this app can get it back for them afterwards -
+ * there is no server copy yet - so erasing it here would be deleting the
+ * only copy. `clearEverything()` is the deliberate way to do that.
+ */
+export function clearAccount(): void {
+  state = { ...state, account: null, crew: null, board: null, lastPosted: '' };
+  persist();
+  emit();
 }
 
 export function crewPaused(): boolean {
@@ -454,7 +498,9 @@ export function pruneEmpty(keepId?: string): void {
  * samples are one tap away for anyone who wants them back.
  */
 export function clearEverything(): void {
-  state = { ...EMPTY, samplesCleared: true };
+  // Not the account. Erasing the log is not signing out, and being thrown
+  // back to a login screen for it would read as something having gone wrong.
+  state = { ...EMPTY, samplesCleared: true, account: state.account };
   persist();
   emit();
 }

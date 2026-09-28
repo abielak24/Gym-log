@@ -14,6 +14,8 @@ import { renderCalendar } from './app/calendar-view';
 import { flushDaily, renderDailyPage } from './app/daily-view';
 import { renderCrew, renderJoin } from './app/crew-view';
 import { parseJoinLink, postSummary } from './app/crew';
+import { signedIn } from './app/auth';
+import { rememberInvite, renderAuth } from './app/auth-view';
 
 const view = document.getElementById('view') as HTMLElement;
 const tabs = [...document.querySelectorAll<HTMLAnchorElement>('.tab')];
@@ -26,6 +28,19 @@ function route(): void {
   flushDaily();
   teardown();
   window.scrollTo(0, 0);
+
+  // The front door. Being signed in is a token in this device's storage, so
+  // this costs nothing and asks nothing of the network - the app still opens
+  // in a basement with no signal, it just will not open to a stranger.
+  if (!signedIn()) {
+    // Somebody arriving on a friend's link has an errand, not just an app to
+    // install. Hold on to it so making an account lands them in that crew.
+    if (screen === 'join') rememberInvite(location.hash);
+    renderAuth(view);
+    document.body.classList.add('signed-out');
+    return;
+  }
+  document.body.classList.remove('signed-out');
 
   switch (screen) {
     case 'cal':

@@ -2,8 +2,9 @@
 
 A workout log that reads the format a paper notebook already uses. Each day
 is a plain-text page; each split is a grid built by reading those pages back,
-with one column per session. It runs entirely on the phone — no account, no
-server, no network.
+with one column per session. The log runs entirely on the phone — no network
+needed once you are signed in — and an account is the front door and the
+identity on a shared board.
 
 ## Commands
 
@@ -52,10 +53,36 @@ The two things that genuinely are stored separately are deliberate choices a
 page cannot express — `overrides` (a renamed or reordered split) and
 `starred` (which lifts show in the summary).
 
+## Accounts
+
+`worker/src/handler.ts` owns accounts, sessions and the board; `src/app/auth.ts`
+is the client. The rules that matter:
+
+- **The password never reaches the server.** `deriveKey` runs PBKDF2 on the
+  device against the account's salt, and the server stores a hash of the
+  result. Stretching is slow on purpose, and a Worker is billed by the
+  millisecond while a phone is not — so the expensive half runs where it is
+  free. `ITERATIONS` is baked into every stored key: changing it invalidates
+  every password.
+- **A handle nobody has still gets a salt**, worked out from the handle and a
+  server-held secret, so a stranger cannot find out who has an account. It
+  must stay stable per handle or the trick is obvious.
+- **One answer for a wrong handle and a wrong password.** `tests/worker.test.ts`
+  compares the two responses byte for byte.
+- **The recovery code is the only way back**, and it is derived before it is
+  sent too — nobody can recover an account on somebody's behalf. That is the
+  trade for asking no email. Using it signs out every other device, because
+  somebody recovering an account may be doing it because a phone is gone.
+- **Signing in is a token in this device's storage**, checked by the router
+  and never against the network. That is what keeps the app working offline.
+- **`clearEverything()` does not sign you out.** Erasing the log is not
+  signing out, and landing on a login screen for it reads as a failure.
+
 ## The crew
 
-`worker/` is a Cloudflare Worker with one D1 table, and `src/app/crew.ts` is
-its client. The rules live in `worker/src/handler.ts`, written against a
+`worker/` is a Cloudflare Worker with a D1 database, and `src/app/crew.ts` is
+its client. A member row belongs to an *account*, not to a device, which is
+what makes two phones one person on a board. The rules live in `worker/src/handler.ts`, written against a
 `Store` interface so every one of them is tested in an ordinary test run with
 nothing deployed (`tests/worker.test.ts`). `scripts/smoke.mjs` stands up an
 in-memory version of the same three routes and drives two browser contexts
@@ -73,8 +100,11 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   input into a number the user did not write. `45x8` is a set; `95x` is a
   flag; `230` alone is a flag saying it looks like a weight missing its reps.
 - **Not in scope:** charts, estimated 1RM, rest timers, plate calculators,
-  streaks, sync, accounts. Each is a reason to look at a phone for longer
-  between sets.
+  streaks. Each is a reason to look at a phone for longer between sets.
+- **Accounts are the front door, and hold nothing.** Signing in decides who
+  you are on a board; the log is still only on the device. Log sync is the
+  next piece of work and is not built — do not write anything that implies
+  it is.
 - **Supersets** parse from `|` into separate tracked columns, but are shown
   as text. The parsing is deliberate — the format must not be lossy — and the
   two-column display is deliberately deferred.

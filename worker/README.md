@@ -1,22 +1,43 @@
-# The crew API
+# The API
 
-A single Cloudflare Worker with one D1 database, behind the Friends tab.
-Five routes, no accounts: a crew is a secret in a link, a member is a token
-generated on a phone, and a passcode is how a person proves they are the
-same person on a second device.
+A single Cloudflare Worker with one D1 database, behind the account screen
+and the Friends tab.
 
-Until this is deployed and its URL wired into the app, the Friends tab says
-sharing is not set up and everything else works exactly as before.
+An **account** is a handle and a password, with no email anywhere. A
+**session** is a token a device holds after signing in. A **crew** is a
+secret in a link: holding it lets you read a board and post to it, and your
+account decides which row on it is yours.
+
+Until this is deployed and its URL wired into the app, the app says accounts
+are not set up and nothing behind the front door opens.
+
+## The password never arrives here
+
+The phone fetches the account's salt, runs PBKDF2 against it locally, and
+sends the derived key; this stores only a SHA-256 of that key. Two reasons,
+both load-bearing:
+
+- The word somebody typed is never transmitted and never stored, so a stolen
+  database holds nothing that can be typed into the sign-in screen.
+- Stretching a password is deliberately slow, and a Worker is billed by CPU
+  millisecond while a phone is not. The expensive half runs where it is free.
+
+The same goes for the recovery code, which means **nobody can recover an
+account on somebody's behalf** — not even whoever runs this. That is the
+trade for asking no email address.
+
+A handle nobody has still gets a salt, worked out from the handle and a
+secret this server keeps in `settings`. It is stable, so a wrong handle looks
+exactly like a wrong password. Ten wrong guesses puts a handle to sleep for
+fifteen minutes.
 
 ## Who can do what
 
-- **Anyone with the link** can read the board and join it.
-- **A member** can post as themselves and remove their own row.
-- **Whoever started the crew** holds an admin token, issued once at creation
-  and never sent to anyone else. They can remove any row, and change the
-  join link.
-- **Anyone with the name and passcode** can take over that row from another
-  device. That is the point: the member token proves a device, not a person.
+- **Anyone signed in** can start a crew, and is its owner.
+- **Anyone with the link** can read a board, and, signed in, post to it.
+- **The owner** can remove any row and change the link. It is their account
+  that says so, so they can do it from any device they are signed in on.
+- **One account is one row per board**, however many devices post from it.
 
 Removing somebody does not stop them rejoining with the link they already
 have. Changing the link is what makes it stick, and it means everyone else
@@ -67,49 +88,41 @@ your subdomain is shown under **Account details** on the Workers & Pages page.
 changing anything in `src/`, or the dashboard copy will drift from the source.
 `tests/bundle.test.ts` checks it has not.
 
-## Upgrading a deployment made before this
+## Upgrading a deployment made before accounts
 
-Two steps, in this order.
+There is no migration. The old data had no accounts in it, member rows were
+keyed by a device token, and crews had an admin token rather than an owner —
+none of which can be invented after the fact. Wipe it and start over.
 
-1. **Add the new columns.** In the D1 console, run these three one at a
-   time — not as a block, because the console stops at the first error and
-   a column you already have raises one:
+In the D1 console, run these **one at a time**; the console stops at the
+first error, and a table that was never there raises one:
 
-   ```sql
-   ALTER TABLE crews ADD COLUMN admin_token_hash TEXT NOT NULL DEFAULT '';
-   ALTER TABLE members ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';
-   ALTER TABLE members ADD COLUMN name_key TEXT NOT NULL DEFAULT '';
-   ```
+```sql
+DROP TABLE IF EXISTS members;
+DROP TABLE IF EXISTS crews;
+```
 
-   `duplicate column name` means that one is already there; move on.
+Then paste the whole of [`schema.sql`](schema.sql) and run it. The
+`CREATE TABLE IF NOT EXISTS` statements are safe to run over each other, so
+this one **can** go in as a block.
 
-2. **Replace the worker code**, from `paste-into-dashboard.js` as above, or
-   `npx wrangler deploy`.
+Then replace the worker's code from
+[`paste-into-dashboard.js`](paste-into-dashboard.js), or `npx wrangler deploy`.
 
-**A crew made before this has no owner.** Its `admin_token_hash` is blank and
-there is nothing to issue one to after the fact — the whole point of the token
-is that only the phone that created the crew ever saw it. So nobody can remove
-a member from an old crew or change its link. Start a fresh crew and re-send
-the link if you want those.
+Everyone signs up again, and the first person to start a crew owns it.
 
 ## What it stores
 
-Per member: a chosen display name, a hash of their token, and the summary
-their phone posted — training frequency, this week's daily goals, and each
-lift with its best set. No pages, no notes, no session detail; those never
-leave the device.
+Per account: a handle, a display name, a public salt, a hash of the derived
+key, a hash of the derived recovery code. No email, no password, no name.
+
+Per member of a board: the account it belongs to, a chosen display name, and
+the summary that phone posted — training frequency, this week's daily goals,
+and each lift with its best set. No pages, no notes, no session detail; those
+never leave the device.
 
 ## What it does not do
 
-No passwords, no email, no recovery. Whoever holds the link is in the crew,
-and the app says so plainly before anyone posts. Losing the phone loses the
-member identity unless a JSON backup was taken, since the token lives in it.
-
-Rules worth knowing, all covered by `tests/worker.test.ts`:
-
-- a member id belongs to the first token that used it, and only that token
-  can post as it again
-- an unknown crew and a wrong secret give exactly the same answer, so the
-  API cannot be used to find out which crews exist
-- token hashes never appear in a response
-- 30 members per crew, 64 kB per summary
+No email, no password reset, no support route back into an account. The
+recovery code is the whole of it. The app says so at sign-up, on the screen
+that shows the code, and will not move on until it has been acknowledged.

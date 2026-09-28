@@ -8,7 +8,8 @@ oldest to newest. Today's column is the one on the right, and it's the only
 one you can type into — so logging a set is a tap and a few characters, with
 last week's numbers sitting right beside them.
 
-It runs entirely on your phone. No account, no server, no signal needed.
+Your log lives on your phone and works with no signal. You sign in once per
+device, and that account is what puts you on a board with your friends.
 
 ```
                 9/8      9/15     9/22
@@ -140,8 +141,8 @@ from Home.
 
 ## Backing up
 
-Your log lives in this phone's browser storage and nowhere else. Losing the
-phone loses the log, so the bottom of Home has **Save as text**, which hands
+Your log lives in this phone's browser storage and nowhere else — the account
+does not yet carry it. Losing the phone loses the log, so the bottom of Home has **Save as text**, which hands
 iOS a plain `.txt` file: *Share → Save to Files → iCloud Drive*. The file is the
 notebook, in the format above, readable in any text editor forever. **Save as
 JSON** is the same data in a form that restores byte-exactly, and **Restore**
@@ -152,28 +153,50 @@ rather than as sets.
 No browser can write to iCloud Drive on its own, so this is one deliberate tap
 rather than background sync. The app nudges you if a week goes by without one.
 
+## Your account
+
+The app opens to a sign-in screen, and nothing behind it opens without one.
+An account is a handle and a password — no email, nothing else asked for.
+
+**Your password never leaves the device.** The app fetches your account's
+salt, stretches the password against it here, and sends the result; the
+server stores only a hash of that. The word you actually typed is never
+transmitted and never stored anywhere.
+
+**You are shown a recovery code once, when you sign up.** It is the only way
+back into your account if you forget your password, and nobody can look it
+up for you — not even whoever runs the server, because it is stretched the
+same way before it is sent. Write it down somewhere that is not the phone.
+Using it sets a new password, hands you a new code, and signs out every
+device that was signed in on the old one.
+
+Signing in is a token in this device's storage, so it is asked for once and
+then never again: the app opens in a basement with no signal exactly as it
+did before. Signing out leaves your log where it is, because there is no
+copy of it anywhere else — see **Backing up**.
+
 ## Training with friends
 
 The **Friends** tab is a crew: a link you send, which gives whoever opens it
-this app with their own empty log *and* a place on your board. No accounts,
-no passwords — the link is the credential, like a shared document.
+this app with their own empty log *and* a place on your board. The link is
+what opens the board, like a shared document; your account is what says which
+row on it is yours.
 
 What leaves your phone is a summary: a name you choose, how often you
 trained, this week's daily goals, and each lift with its best set. Your
 pages, notes and sessions stay on the device. Hold a lift back from its own
 page, pause sharing entirely, or leave the crew and your row is deleted.
 
-You pick a **passcode** when you join, and after that the link is a **log
-in**, not a sign-up. Opening it shows who is already on the board: tap your
-name, enter your passcode, and that phone takes over your row. A link that
-has been forwarded, re-sent or opened twice can't quietly put you on the
-board a second time under a slightly different spelling of your name — and a
-phone already in the crew skips the screen entirely and goes to the board.
+**Your account is who you are on every board**, so a link that has been
+forwarded, re-sent or opened twice can't put you on one a second time. Open
+it on a phone already in that crew and it goes straight to the board; open it
+on a new device and signing in gets you the same row, not a duplicate. The
+name on the board is separate from your handle — be `alex_99` to the server
+and `Alex` to your friends.
 
-Only somebody genuinely new taps **I am new here** and picks a name. The
-passcode does not protect your log, which never leaves the device anyway;
-logging in on a new phone puts you back on the board, it does not bring your
-history with you. Use **Restore** for that.
+Logging in on a new phone puts you back on the board; it does not bring your
+history with you, because your log is still only on the phone that wrote it.
+Use **Restore** for that.
 
 **Whoever starts the crew** can remove anyone from the board. Removing alone
 does not stop them rejoining, since they still hold the join link — so the
@@ -231,9 +254,13 @@ untouched.
 
 ## What it deliberately doesn't do
 
-No charts, no estimated 1RM, no rest timer, no plate calculator, no streaks,
-no sync, no accounts. Each of those is a real feature, and each one is a
-reason to look at your phone for longer between sets.
+No charts, no estimated 1RM, no rest timer, no plate calculator, no streaks.
+Each of those is a real feature, and each one is a reason to look at your
+phone for longer between sets.
+
+**Your log does not sync yet.** The account is the front door and the board
+identity; making the log itself follow you across devices is the next piece
+of work. Until then, **Save as JSON** and **Restore** are the way across.
 
 ## Known limits
 

@@ -14,9 +14,16 @@ describe('the file you paste into the Cloudflare dashboard', () => {
   });
 
   it('carries the rules, not just the entry point', () => {
-    expect(bundle).toContain('not your member id');
+    expect(bundle).toContain('that handle is taken');
+    expect(bundle).toContain('only whoever started the crew can do that');
     expect(bundle).toContain('crew is full');
     expect(bundle).toContain('summary too large');
+  });
+
+  // The two that a stale paste would break most quietly.
+  it('carries the account rules a stale copy would lose', () => {
+    expect(bundle).toContain('too many attempts');
+    expect(bundle).toContain('salt-secret');
   });
 
   it('still hashes secrets rather than storing them', () => {

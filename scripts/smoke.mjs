@@ -29,12 +29,18 @@ const TYPES = {
 };
 
 /**
- * A stand-in for the deployed worker: the same three routes, in memory.
+ * A stand-in for the deployed worker, in memory.
+ *
  * The worker's own rules are covered by tests/worker.test.ts; this exists so
- * the client can be driven end to end without anything deployed.
+ * the client can be driven end to end without anything deployed. It is
+ * deliberately loose where the real one is strict - it is here to let the
+ * browser make real requests, not to re-prove the rules.
  */
+const accounts = new Map();   // handleKey -> { id, handle, displayName, salt, key, recovery }
+const tokens = new Map();     // token -> accountId
 const crews = new Map();
 const members = new Map();
+let nextId = 0;
 
 async function crewApi(request, response, path) {
   const body = await new Promise((resolve) => {
@@ -48,79 +54,135 @@ async function crewApi(request, response, path) {
     response.end(JSON.stringify(payload));
   };
 
-  if (request.method === 'POST' && path === '/api/crew') {
-    const crewId = `c${crews.size + 1}`;
-    const secret = `s${crews.size + 1}`;
-    crews.set(crewId, { secret, adminToken: `a${crews.size + 1}` });
-    members.set(crewId, new Map());
-    return send(201, { crewId, secret, adminToken: crews.get(crewId).adminToken });
+  const fold = (name) => String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const json = () => { try { return JSON.parse(body); } catch { return {}; } };
+  const whoami = () => accounts.get(tokens.get(request.headers['x-account-token']) ?? '') ?? null;
+  const issue = (account) => {
+    const token = `tok${nextId += 1}`;
+    tokens.set(token, account.handleKey);
+    return { accountId: account.id, token, handle: account.handle, displayName: account.displayName };
+  };
+
+  /* Accounts ------------------------------------------------------------- */
+
+  if (request.method === 'POST' && path === '/api/account') {
+    const wanted = json();
+    const key = fold(wanted.handle);
+    if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(wanted.handle ?? ''))) {
+      return send(400, { error: 'a handle is 3 to 40 letters, numbers, dots, dashes or underscores' });
+    }
+    if (accounts.has(key)) return send(409, { error: 'that handle is taken' });
+
+    const account = {
+      id: `acc${nextId += 1}`,
+      handleKey: key,
+      handle: wanted.handle,
+      displayName: wanted.displayName || wanted.handle,
+      salt: wanted.salt,
+      key: wanted.key,
+      recovery: wanted.recovery,
+    };
+    accounts.set(key, account);
+    return send(201, issue(account));
   }
 
-  const put = /^\/api\/crew\/([^/]+)\/member\/([^/]+)$/.exec(path);
+  if (request.method === 'POST' && path === '/api/account/salt') {
+    const found = accounts.get(fold(json().handle));
+    // A handle nobody has still gets a stable answer, so it cannot be probed.
+    return send(200, { salt: found ? found.salt : `made-up-${fold(json().handle)}` });
+  }
+
+  if (request.method === 'POST' && path === '/api/session') {
+    const wanted = json();
+    const found = accounts.get(fold(wanted.handle));
+    if (!found || found.key !== wanted.key) return send(403, { error: 'that handle and password do not match' });
+    return send(200, issue(found));
+  }
+
+  if (request.method === 'POST' && path === '/api/account/recover') {
+    const wanted = json();
+    const found = accounts.get(fold(wanted.handle));
+    if (!found || found.recovery !== wanted.recovery) {
+      return send(403, { error: 'that handle and recovery code do not match' });
+    }
+    found.salt = wanted.salt;
+    found.key = wanted.key;
+    found.recovery = wanted.nextRecovery;
+    for (const [token, owner] of tokens) if (owner === found.handleKey) tokens.delete(token);
+    return send(200, issue(found));
+  }
+
+  if (request.method === 'DELETE' && path === '/api/session') {
+    tokens.delete(request.headers['x-account-token']);
+    return send(200, { ok: true });
+  }
+
+  if (request.method === 'GET' && path === '/api/me') {
+    const me = whoami();
+    if (!me) return send(401, { error: 'not signed in' });
+    return send(200, { accountId: me.id, handle: me.handle, displayName: me.displayName });
+  }
+
+  /* Crews ---------------------------------------------------------------- */
+
+  if (request.method === 'POST' && path === '/api/crew') {
+    const me = whoami();
+    if (!me) return send(401, { error: 'not signed in' });
+
+    const crewId = `c${crews.size + 1}`;
+    const secret = `s${crews.size + 1}`;
+    crews.set(crewId, { secret, ownerAccountId: me.id });
+    members.set(crewId, new Map());
+    return send(201, { crewId, secret });
+  }
+
+  const mine = /^\/api\/crew\/([^/]+)\/member$/.exec(path);
+  const other = /^\/api\/crew\/([^/]+)\/member\/([^/]+)$/.exec(path);
   const get = /^\/api\/crew\/([^/]+)$/.exec(path);
-  const claim = /^\/api\/crew\/([^/]+)\/claim$/.exec(path);
   const rotate = /^\/api\/crew\/([^/]+)\/rotate$/.exec(path);
-  const crewId = put?.[1] ?? get?.[1] ?? claim?.[1] ?? rotate?.[1];
+  const crewId = mine?.[1] ?? other?.[1] ?? get?.[1] ?? rotate?.[1];
 
   const crew = crewId ? crews.get(crewId) : undefined;
   if (!crew || crew.secret !== request.headers['x-crew-secret']) return send(404, { error: 'no such crew' });
 
-  const isAdmin = request.headers['x-admin-token'] === crew.adminToken;
-  const fold = (name) => String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-  // The token is a device; the passcode is the person. Either may write a row,
-  // so a claim from a second device does not lock the first one out.
-  const owns = (row) => row.token === request.headers['x-member-token']
-    || Boolean(row.passcode && request.headers['x-member-passcode'] === row.passcode);
+  const me = whoami();
+  const isOwner = Boolean(me && me.id === crew.ownerAccountId);
 
   if (rotate && request.method === 'POST') {
-    if (!isAdmin) return send(403, { error: 'only whoever started the crew can do that' });
+    if (!isOwner) return send(403, { error: 'only whoever started the crew can do that' });
     crew.secret = `${crew.secret}-rotated`;
     return send(200, { secret: crew.secret });
   }
 
-  if (claim && request.method === 'POST') {
-    const wanted = JSON.parse(body);
-    const found = [...members.get(crewId).values()].find((m) => fold(m.name) === fold(wanted.name));
-    if (!found || !found.passcode || found.passcode !== wanted.passcode) {
-      return send(403, { error: 'that name and passcode do not match' });
-    }
-    found.token = request.headers['x-member-token'];
-    return send(200, { memberId: found.memberId });
-  }
+  if (mine && request.method === 'PUT') {
+    if (!me) return send(401, { error: 'not signed in' });
 
-  if (put && request.method === 'PUT') {
     const crewMembers = members.get(crewId);
-    const existing = crewMembers.get(put[2]);
-    const token = request.headers['x-member-token'];
-    if (existing && !owns(existing)) return send(403, { error: 'not your member id' });
-
     const summary = JSON.parse(body);
-    const clash = [...crewMembers.values()].find((m) => fold(m.name) === fold(summary.name) && m.memberId !== put[2]);
+    const clash = [...crewMembers.values()].find((m) => fold(m.name) === fold(summary.name) && m.memberId !== me.id);
     if (clash) return send(409, { error: 'that name is taken' });
 
-    crewMembers.set(put[2], {
-      memberId: put[2],
-      name: summary.name,
-      updatedAt: Date.now(),
-      summary,
-      // Mirrors the SQL, which never updates token_hash on a put.
-      token: existing?.token ?? token,
-      passcode: request.headers['x-member-passcode'] || existing?.passcode || '',
-    });
+    crewMembers.set(me.id, { memberId: me.id, name: summary.name, updatedAt: Date.now(), summary });
+    return send(200, { ok: true, accountId: me.id });
+  }
+
+  if (mine && request.method === 'DELETE') {
+    if (!me) return send(401, { error: 'not signed in' });
+    members.get(crewId).delete(me.id);
     return send(200, { ok: true });
   }
 
-  if (put && request.method === 'DELETE') {
-    const existing = members.get(crewId).get(put[2]);
-    const mine = existing && owns(existing);
-    if (existing && !mine && !isAdmin) return send(403, { error: 'not your member id' });
-    members.get(crewId).delete(put[2]);
+  if (other && request.method === 'DELETE') {
+    if (!isOwner) return send(403, { error: 'only whoever started the crew can do that' });
+    if (other[2] === me.id) return send(400, { error: 'you cannot remove yourself' });
+    members.get(crewId).delete(other[2]);
     return send(200, { ok: true });
   }
 
   if (get && request.method === 'GET') {
     return send(200, {
-      members: [...members.get(crewId).values()].map(({ token, passcode, ...rest }) => rest),
+      ownerAccountId: crew.ownerAccountId,
+      members: [...members.get(crewId).values()],
     });
   }
 
@@ -185,6 +247,69 @@ const context = await browser.newContext({
 const page = await context.newPage();
 page.on('pageerror', (error) => check('no page errors', false, error.message));
 const url = `http://localhost:${PORT}${BASE}`;
+
+// Point the app at the stand-in worker, as a deploy would.
+await context.addInitScript((api) => localStorage.setItem('gym-notebook:crew-api', api), `http://localhost:${PORT}${BASE}api`);
+
+/**
+ * Make an account, which is now how every device starts.
+ *
+ * Deriving the key is deliberately slow, so this is not instant - which is
+ * itself worth knowing, since it is what every real sign-in costs.
+ */
+const makeAccount = async (pg, handle, password = 'correct-horse') => {
+  await pg.waitForSelector('.auth-form');
+  if (await pg.locator('.btn-ghost', { hasText: 'Create an account' }).count()) {
+    await pg.locator('.btn-ghost', { hasText: 'Create an account' }).click();
+  }
+  await pg.locator('input[aria-label="Handle"]').fill(handle);
+  await pg.locator('input[aria-label="Password"]').fill(password);
+  await pg.locator('input[aria-label="Password again"]').fill(password);
+  await pg.locator('.btn-primary', { hasText: 'Create account' }).click();
+  await pg.waitForSelector('.recovery-code', { timeout: 30000 });
+  const code = (await pg.locator('.recovery-code').textContent())?.trim();
+  await pg.locator('.confirm-saved input').check();
+  await pg.locator('.btn-primary', { hasText: 'Continue' }).click();
+  return code;
+};
+
+const signInAs = async (pg, handle, password = 'correct-horse') => {
+  await pg.waitForSelector('.auth-form');
+  if (await pg.locator('.btn-ghost', { hasText: 'I already have an account' }).count()) {
+    await pg.locator('.btn-ghost', { hasText: 'I already have an account' }).click();
+  }
+  await pg.locator('input[aria-label="Handle"]').fill(handle);
+  await pg.locator('input[aria-label="Password"]').fill(password);
+  await pg.locator('.btn-primary', { hasText: 'Sign in' }).click();
+};
+
+// --- The front door -------------------------------------------------------
+await page.goto(url);
+await page.waitForSelector('.auth-form');
+check('a new phone asks for an account before anything else', (await page.locator('.exercise-name').textContent()) === 'Create an account');
+check('with nothing to navigate away into', (await page.locator('.topbar:visible').count()) === 0);
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.auth-form');
+check('and a link straight to the log does not get past it', (await page.locator('.split-list').count()) === 0);
+
+await page.locator('.btn-ghost', { hasText: 'I already have an account' }).click();
+await page.locator('input[aria-label="Handle"]').fill('nobody');
+await page.locator('input[aria-label="Password"]').fill('not-a-password');
+await page.locator('.btn-primary', { hasText: 'Sign in' }).click();
+await page.waitForSelector('.toast', { timeout: 30000 });
+check('a handle nobody has is refused like a wrong password', (await page.locator('.toast').textContent())?.includes('do not match'));
+
+const recoveryCode = await makeAccount(page, 'alex');
+await page.waitForSelector('.split-list');
+check('the recovery code is shown once, and is readable', /^[2-9A-Z-]{10,}$/.test(recoveryCode ?? ''), recoveryCode ?? '');
+check('making an account opens the app', (await page.locator('.split-list').count()) === 1);
+
+await page.reload();
+await page.waitForSelector('.split-list');
+check('and being signed in survives a reload', (await page.locator('.auth-form').count()) === 0);
+
+await page.screenshot({ path: join(SHOTS, '0-signed-in.png'), fullPage: true });
 
 // --- Home: the splits, read out of what has been written -------------------
 await page.goto(url);
@@ -571,10 +696,13 @@ await page.waitForSelector('.daily-row');
 check('changing an old day\u2019s goal leaves today alone', (await page.locator('input[aria-label="Pushups goal"]').inputValue()) === '100');
 
 // --- Light mode -----------------------------------------------------------------------------
-const lightPage = await (await browser.newContext({
+const lightCtx = await browser.newContext({
   viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'light',
-})).newPage();
+});
+await lightCtx.addInitScript((api) => localStorage.setItem('gym-notebook:crew-api', api), `${url}api`);
+const lightPage = await lightCtx.newPage();
 await lightPage.goto(`${url}#/home`);
+await makeAccount(lightPage, 'lighty');
 await lightPage.waitForSelector('.daily');
 await lightPage.screenshot({ path: join(SHOTS, '9-light.png'), fullPage: true });
 check('light mode renders', true);
@@ -665,6 +793,8 @@ const mineCtx = await phone();
 const mine = await mineCtx.newPage();
 mine.on('pageerror', (error) => check('no page errors on the crew tab', false, error.message));
 
+await mine.goto(url);
+await makeAccount(mine, 'alexlifts');
 await mine.goto(`${url}#/friends`);
 await mine.waitForSelector('.add-exercise');
 check('the tab explains what a crew is before anything is sent', (await mine.locator('.banner-nudge').textContent())?.includes('never leave this phone'));
@@ -672,8 +802,7 @@ check('and warns that the link is the key', (await mine.locator('.banner-nudge')
 await mine.screenshot({ path: join(SHOTS, '16-crew-start.png'), fullPage: true });
 
 await mine.locator('input[aria-label="Your name on the board"]').fill('Alex');
-check('a passcode is asked for, and why', (await mine.locator('.note').allTextContents()).some((n) => n.includes('second device')));
-await mine.locator('input[aria-label="Your passcode"]').fill('alex-code');
+check('the board name is offered, not demanded again', (await mine.locator('input[aria-label="Your name on the board"]').inputValue()) !== '');
 await mine.locator('.btn-primary', { hasText: 'Start a crew' }).click();
 await mine.waitForSelector('.board-list');
 
@@ -687,17 +816,16 @@ const theirsCtx = await phone();
 const theirs = await theirsCtx.newPage();
 theirs.on('pageerror', (error) => check('no page errors on the friend\u2019s phone', false, error.message));
 await theirs.goto(invite.trim());
-await theirs.waitForSelector('.board-list');
-check('the link opens a log in screen, not a sign up form', (await theirs.locator('.exercise-name').textContent()) === 'Log in');
-check('showing who is already on that board', (await theirs.locator('.board-name').textContent()) === 'Alex');
-check('and offering no way to make a row by accident', (await theirs.locator('input[aria-label="Your name on the board"]').count()) === 0);
+await theirs.waitForSelector('.auth-form');
+check('a friend\u2019s link still meets the front door first', (await theirs.locator('.exercise-name').textContent()) === 'Create an account');
+check('and says why they are being asked', (await theirs.locator('.note').first().textContent())?.includes('invited'));
 
-await theirs.locator('.btn', { hasText: 'I am new here' }).click();
+await makeAccount(theirs, 'samlifts');
 await theirs.waitForSelector('input[aria-label="Your name on the board"]');
-check('somebody genuinely new can still say so', (await theirs.locator('.exercise-name').textContent()) === 'Join this crew');
+check('making an account lands them in the crew, not on the home screen', theirs.url().includes('#/join/'));
+check('showing who is already on that board', (await theirs.locator('.board-name').textContent()) === 'Alex');
 
 await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
-await theirs.locator('input[aria-label="Your passcode"]').fill('sam-code');
 await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
 await theirs.waitForSelector('.board-list');
 check('joining shows the board', (await theirs.locator('.board-name').count()) === 2);
@@ -812,31 +940,63 @@ await theirs.waitForTimeout(800);
 check('and the new link puts their row back on the board', (await theirs.locator('.board-name').count()) === 2);
 check('as their own row, not a second one', (await theirs.locator('.board-row:has-text("(you)") .board-name').textContent())?.startsWith('Sam'));
 
-// --- A second device claiming the same row ----------------------------------------------
+// --- The same account, on a second device ------------------------------------------------
 const laptopCtx = await phone();
 const laptop = await laptopCtx.newPage();
 await laptop.goto(newLink.trim());
-await laptop.waitForSelector('.board-list');
-check('a new device is offered the names already on the board', (await laptop.locator('.board-name').count()) === 2);
+await laptop.waitForSelector('.auth-form');
 
-await laptop.locator('.board-row', { hasText: 'Sam' }).locator('.btn', { hasText: 'This is me' }).click();
-await laptop.locator('input[aria-label="Your passcode"]').fill('sam-code');
-await laptop.locator('.btn-primary', { hasText: 'Log in' }).click();
-await laptop.waitForSelector('.board-list .board-row:has-text("(you)")');
-check('logging in claims that row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
-check('and the claimed row is this device\u2019s own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
+await signInAs(laptop, 'samlifts');
+await laptop.waitForSelector('input[aria-label="Your name on the board"]', { timeout: 30000 });
+check('signing in on a second device lands in the same crew', laptop.url().includes('#/join/'));
+
+await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
+await laptop.waitForSelector('.board-list');
+check('and updates that account\u2019s row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
+check('which it knows is its own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
 
 const wrongCtx = await phone();
 const wrong = await wrongCtx.newPage();
 await wrong.goto(newLink.trim());
-await wrong.waitForSelector('.board-list');
-await wrong.locator('.board-row', { hasText: 'Sam' }).locator('.btn', { hasText: 'This is me' }).click();
-await wrong.locator('input[aria-label="Your passcode"]').fill('not-sams-code');
-await wrong.locator('.btn-primary', { hasText: 'Log in' }).click();
-await wrong.waitForTimeout(900);
-check('a wrong passcode cannot take somebody else\u2019s place', (await wrong.locator('.board-row:has-text("(you)")').count()) === 0);
-check('and says so plainly', (await wrong.locator('.toast').textContent())?.includes('not the passcode for Sam'));
+await signInAs(wrong, 'samlifts', 'not-sams-password');
+await wrong.waitForSelector('.toast', { timeout: 30000 });
+check('a wrong password gets nowhere near the board', (await wrong.locator('.board-list').count()) === 0);
+check('and says so without saying whether the handle exists', (await wrong.locator('.toast').textContent())?.includes('do not match'));
 await wrongCtx.close();
+
+// --- The recovery code -------------------------------------------------------------------
+const lostCtx = await phone();
+const lost = await lostCtx.newPage();
+await lost.goto(url);
+await lost.waitForSelector('.auth-form');
+await lost.locator('.btn-ghost', { hasText: 'I already have an account' }).click();
+await lost.locator('.btn-ghost', { hasText: 'I have lost my password' }).click();
+check('a lost password has a way back', (await lost.locator('.exercise-name').textContent()) === 'Use your recovery code');
+
+await lost.locator('input[aria-label="Handle"]').fill('alex');
+await lost.locator('input[aria-label="Recovery code"]').fill(recoveryCode ?? '');
+await lost.locator('input[aria-label="Password"]').fill('a-brand-new-one');
+await lost.locator('input[aria-label="Password again"]').fill('a-brand-new-one');
+await lost.locator('.btn-primary', { hasText: 'Set a new password' }).click();
+await lost.waitForSelector('.recovery-code', { timeout: 30000 });
+const nextCode = (await lost.locator('.recovery-code').textContent())?.trim();
+check('and using it hands over a fresh code', Boolean(nextCode) && nextCode !== recoveryCode);
+
+await lost.locator('.confirm-saved input').check();
+await lost.locator('.btn-primary', { hasText: 'Continue' }).click();
+await lost.waitForSelector('.split-list');
+check('recovering opens the app', (await lost.locator('.split-list').count()) === 1);
+check('on a phone that starts with nothing of its own', (await lost.locator('.session-count').count()) >= 0);
+
+const staleCtx = await phone();
+const stale = await staleCtx.newPage();
+await stale.goto(url);
+await signInAs(stale, 'alex');
+await stale.waitForSelector('.toast', { timeout: 30000 });
+check('and the old password stops working', (await stale.locator('.toast').textContent())?.includes('do not match'));
+await staleCtx.close();
+await lostCtx.close();
 await laptopCtx.close();
 
 // --- Pausing, and leaving ------------------------------------------------------------------

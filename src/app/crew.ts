@@ -7,6 +7,7 @@
  */
 
 import { buildSummary, type MemberSummary } from '../core/summary';
+import { accountHeaders } from './auth';
 import * as store from './store';
 
 /**
@@ -40,16 +41,11 @@ export function isConfigured(): boolean {
 /** What this phone would post right now. */
 export function mySummary(): MemberSummary {
   return buildSummary({
-    name: store.crew()?.name ?? '',
+    name: store.crew()?.name ?? store.account()?.displayName ?? '',
     sessions: store.sessions(),
     daily: store.dailyLog(),
     hidden: store.hiddenFromCrew(),
   });
-}
-
-function randomId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
@@ -68,31 +64,45 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * The headers that say who this phone is.
- *
- * The passcode rides along with the token because the token only proves a
- * device: once another phone has claimed this row, the passcode is the only
- * thing left that says the row is still mine.
- */
+/** The headers a crew call needs: the link, and who is signed in. */
 function identity(crew: NonNullable<ReturnType<typeof store.crew>>): Record<string, string> {
-  const headers: Record<string, string> = {
-    'x-crew-secret': crew.secret,
-    'x-member-token': crew.token,
-  };
-  if (crew.passcode) headers['x-member-passcode'] = crew.passcode;
-  if (crew.adminToken) headers['x-admin-token'] = crew.adminToken;
-  return headers;
+  return { 'x-crew-secret': crew.secret, ...accountHeaders() };
 }
 
-export async function createCrew(name: string, passcode: string): Promise<void> {
-  const response = await send('/crew', { method: 'POST' });
-  const { crewId, secret, adminToken } = await response.json() as {
-    crewId: string; secret: string; adminToken: string;
-  };
+export async function createCrew(name: string): Promise<void> {
+  const response = await send('/crew', { method: 'POST', headers: accountHeaders() });
+  const { crewId, secret } = await response.json() as { crewId: string; secret: string };
 
-  store.setCrew({ id: crewId, secret, adminToken, passcode, memberId: randomId(), token: randomId(), name });
+  store.setCrew({ id: crewId, secret, name, ownerAccountId: store.account()?.id });
   await postSummary(true);
+}
+
+/**
+ * Join a crew from its link.
+ *
+ * There is nothing to prove here beyond being signed in: the account is who
+ * you are on every board, so opening a link twice updates one row rather
+ * than making a second person.
+ */
+export async function joinCrew(crewId: string, secret: string, name: string): Promise<void> {
+  const before = store.crew();
+  store.setCrew({ id: crewId, secret, name });
+
+  let result: PostResult;
+  try {
+    result = await postSummary(true);
+  } catch (error) {
+    restore(before);
+    throw error;
+  }
+
+  // Posting swallows failures everywhere else, because logging a set must
+  // never wait on a network. Joining is the one time silence is wrong: the
+  // whole point of the tap was to reach the board.
+  if (result !== 'posted') {
+    restore(before);
+    throw new Error('could not reach the board');
+  }
 }
 
 /**
@@ -107,88 +117,10 @@ function restore(before: ReturnType<typeof store.crew>): void {
   else store.clearCrew();
 }
 
-export async function joinCrew(crewId: string, secret: string, name: string, passcode: string): Promise<void> {
-  const existing = store.crew();
-  // Rejoining the same crew keeps this phone's identity, so its row updates
-  // rather than a second one appearing under the same person.
-  const mine = existing && existing.id === crewId
-    ? { memberId: existing.memberId, token: existing.token, adminToken: existing.adminToken }
-    : { memberId: randomId(), token: randomId() };
-
-  store.setCrew({ id: crewId, secret, name, passcode, ...mine });
-
-  let result: PostResult;
-  try {
-    result = await postSummary(true);
-  } catch (error) {
-    // Somebody on this board already has that name. Before giving up, try it
-    // as this person arriving on a second device.
-    if (error instanceof ApiError && error.status === 409) {
-      try {
-        await claimRow(name, passcode);
-        return;
-      } catch (claimError) {
-        restore(existing);
-        throw claimError;
-      }
-    }
-    restore(existing);
-    throw error;
-  }
-
-  // Posting swallows failures everywhere else, because logging a set must
-  // never wait on a network. Joining is the one time silence is wrong: the
-  // whole point of the tap was to reach the board.
-  if (result !== 'posted') {
-    restore(existing);
-    throw new Error('could not reach the board');
-  }
-}
-
-/**
- * Take a place already on the board, on a phone that has none.
- *
- * This is the returning case, and the one that matters: without it, opening
- * the link again is an invitation to type a slightly different name and
- * appear twice.
- */
-export async function logIn(crewId: string, secret: string, name: string, passcode: string): Promise<void> {
-  const existing = store.crew();
-  store.setCrew({ id: crewId, secret, name, passcode, memberId: randomId(), token: randomId() });
-
-  try {
-    await claimRow(name, passcode);
-  } catch (error) {
-    restore(existing);
-    throw error;
-  }
-}
-
-/**
- * Take over a row already on the board, from another device.
- *
- * The member token proves a device, not a person, so a second phone proves
- * itself with the name on the board and the passcode set alongside it.
- */
-export async function claimRow(name: string, passcode: string): Promise<void> {
-  const crew = store.crew();
-  if (!crew) throw new Error('not in a crew');
-
-  const response = await send(`/crew/${encodeURIComponent(crew.id)}/claim`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...identity(crew) },
-    body: JSON.stringify({ name, passcode }),
-  });
-
-  const { memberId } = await response.json() as { memberId: string };
-  store.updateCrew({ memberId, name, passcode });
-  await postSummary(true);
-}
-
 /** Take somebody off the board. Only whoever started the crew can. */
 export async function removeMember(memberId: string): Promise<void> {
   const crew = store.crew();
-  if (!crew?.adminToken) throw new Error('only whoever started the crew can do that');
+  if (!crew) throw new Error('not in a crew');
 
   await send(`/crew/${encodeURIComponent(crew.id)}/member/${encodeURIComponent(memberId)}`, {
     method: 'DELETE',
@@ -204,7 +136,7 @@ export async function removeMember(memberId: string): Promise<void> {
  */
 export async function rotateLink(): Promise<void> {
   const crew = store.crew();
-  if (!crew?.adminToken) throw new Error('only whoever started the crew can do that');
+  if (!crew) throw new Error('not in a crew');
 
   const response = await send(`/crew/${encodeURIComponent(crew.id)}/rotate`, {
     method: 'POST',
@@ -228,12 +160,10 @@ export async function postSummary(force = false): Promise<PostResult> {
   const body = JSON.stringify(summary);
   if (!force && body === store.lastPosted()) return 'unchanged';
 
-  const headers: Record<string, string> = { 'content-type': 'application/json', ...identity(crew) };
-
   try {
-    await send(`/crew/${encodeURIComponent(crew.id)}/member/${encodeURIComponent(crew.memberId)}`, {
+    await send(`/crew/${encodeURIComponent(crew.id)}/member`, {
       method: 'PUT',
-      headers,
+      headers: { 'content-type': 'application/json', ...identity(crew) },
       body,
     });
     store.rememberPosted(body);
@@ -257,7 +187,12 @@ export async function fetchBoard(): Promise<'ok' | 'failed' | 'gone' | 'no-crew'
     const response = await send(`/crew/${encodeURIComponent(crew.id)}`, {
       headers: { 'x-crew-secret': crew.secret },
     });
-    const { members } = await response.json() as { members: BoardMember[] };
+    const { members, ownerAccountId } = await response.json() as {
+      members: BoardMember[]; ownerAccountId: string;
+    };
+    // Who owns the crew comes from the board rather than from anything this
+    // phone was handed, so a device that signs in later still knows.
+    if (crew.ownerAccountId !== ownerAccountId) store.updateCrew({ ownerAccountId });
     store.setBoard(members);
     return 'ok';
   } catch (error) {
@@ -269,11 +204,10 @@ export async function fetchBoard(): Promise<'ok' | 'failed' | 'gone' | 'no-crew'
 }
 
 /**
- * Read a board from a link alone, before this phone is on it.
+ * Read a board from a link alone.
  *
- * The link is the credential, so it is enough to see who is already there -
- * which is what makes a log-in screen possible rather than a name typed from
- * memory and a duplicate row when it is typed differently.
+ * The link is the credential for looking, so this works before joining -
+ * which is what lets the join screen show who is already there.
  */
 export async function peekBoard(
   crewId: string,
@@ -297,7 +231,7 @@ export async function leaveCrew(): Promise<void> {
   const crew = store.crew();
   if (crew && isConfigured()) {
     try {
-      await send(`/crew/${encodeURIComponent(crew.id)}/member/${encodeURIComponent(crew.memberId)}`, {
+      await send(`/crew/${encodeURIComponent(crew.id)}/member`, {
         method: 'DELETE',
         headers: identity(crew),
       });

@@ -1,11 +1,27 @@
 # The crew API
 
 A single Cloudflare Worker with one D1 database, behind the Friends tab.
-Three routes, no accounts: a crew is a secret in a link, and a member is a
-token generated on a phone.
+Five routes, no accounts: a crew is a secret in a link, a member is a token
+generated on a phone, and a passcode is how a person proves they are the
+same person on a second device.
 
 Until this is deployed and its URL wired into the app, the Friends tab says
 sharing is not set up and everything else works exactly as before.
+
+## Who can do what
+
+- **Anyone with the link** can read the board and join it.
+- **A member** can post as themselves and remove their own row.
+- **Whoever started the crew** holds an admin token, issued once at creation
+  and never sent to anyone else. They can remove any row, and change the
+  join link.
+- **Anyone with the name and passcode** can take over that row from another
+  device. That is the point: the member token proves a device, not a person.
+
+Removing somebody does not stop them rejoining with the link they already
+have. Changing the link is what makes it stick, and it means everyone else
+needs re-inviting — so the app offers the two as a single choice rather than
+pretending a removal is final.
 
 ## Deploying it
 

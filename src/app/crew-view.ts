@@ -9,6 +9,7 @@
 import { friendlyDate, thousands } from './format';
 import {
   createCrew, fetchBoard, isConfigured, joinCrew, joinLink, leaveCrew, mySummary, postSummary,
+  removeMember, rotateLink,
   type BoardMember,
 } from './crew';
 import { toast } from './panels';
@@ -68,6 +69,8 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   name.autocapitalize = 'words';
   name.setAttribute('aria-label', 'Your name on the board');
 
+  const passcode = passcodeField();
+
   const create = document.createElement('button');
   create.type = 'submit';
   create.className = 'btn btn-primary';
@@ -76,14 +79,17 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const chosen = name.value.trim();
-    if (!chosen) {
-      toast('Pick a name first — it is what your friends will see.');
+    const code = passcode.value.trim();
+    if (!chosen || !code) {
+      toast('A name and a passcode, so you can pick this up on another device.');
       return;
     }
+
+    const at = location.hash;
     create.disabled = true;
     create.textContent = 'Starting…';
-    void createCrew(chosen)
-      .then(() => renderCrew(root))
+    void createCrew(chosen, code)
+      .then(() => stillHere(at, () => renderCrew(root)))
       .catch((error: Error) => {
         create.disabled = false;
         create.textContent = 'Start a crew';
@@ -92,9 +98,27 @@ function startOrJoin(root: HTMLElement): HTMLElement {
   });
 
   form.append(name, create);
-  wrap.append(form);
+  wrap.append(form, passcode, passcodeNote());
   wrap.append(note('Already have a link from a friend? Open it and you will land here, in their crew.'));
   return wrap;
+}
+
+function passcodeField(): HTMLInputElement {
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.className = 'search';
+  input.placeholder = 'A passcode';
+  input.autocapitalize = 'none';
+  input.autocomplete = 'new-password';
+  input.setAttribute('aria-label', 'Your passcode');
+  return input;
+}
+
+function passcodeNote(): HTMLElement {
+  return note(
+    'The passcode is how you take your place on the board back if you get a new phone, '
+    + 'or use this crew from a second device. It does not protect your log, which never leaves this phone.',
+  );
 }
 
 function privacyNote(): HTMLElement {
@@ -142,13 +166,35 @@ function board(root: HTMLElement): HTMLElement {
       stillHere(here, () => {
         refresh.disabled = false;
         refresh.textContent = 'Refresh';
-        if (result === 'ok') drawList();
-        else toast('Could not reach the board.');
+        show(result, false);
       });
     });
   });
 
   footer.append(when, refresh);
+
+  /**
+   * One place that decides what a fetch means.
+   *
+   * Asking again by hand and asking on the way in have to agree \u2014 a link
+   * that no longer opens the crew has to say so either way, not only when
+   * the tab happens to have refreshed itself.
+   */
+  const show = (result: Awaited<ReturnType<typeof fetchBoard>>, firstLoad: boolean) => {
+    if (result === 'gone') {
+      wrap.replaceChildren(linkChanged(root));
+      return;
+    }
+    if (result === 'ok') {
+      drawList();
+      return;
+    }
+    if (firstLoad && !store.board()) {
+      list.replaceChildren(note('Could not reach the board. It will load when you are back online.'));
+      return;
+    }
+    toast('Could not reach the board.');
+  };
 
   /**
    * Redraw the rows, not the tab.
@@ -168,7 +214,7 @@ function board(root: HTMLElement): HTMLElement {
     }
 
     for (const member of [...cached.members].sort((a, b) => b.updatedAt - a.updatedAt)) {
-      list.append(memberRow(member, member.memberId === crew.memberId));
+      list.append(memberRow(member, member.memberId === crew.memberId, root, drawList));
     }
     when.textContent = `As of ${new Date(cached.fetchedAt).toLocaleString()}`;
   };
@@ -179,21 +225,42 @@ function board(root: HTMLElement): HTMLElement {
   const cached = store.board();
   // A copy from moments ago is good enough; this tab is not a live feed.
   if (!cached || Date.now() - cached.fetchedAt > 5000) {
-    void fetchBoard().then((result) => {
-      stillHere(at, () => {
-        if (result === 'ok') drawList();
-        else if (!cached) {
-          list.replaceChildren(note('Could not reach the board. It will load when you are back online.'));
-        }
-      });
-    });
+    void fetchBoard().then((result) => stillHere(at, () => show(result, true)));
   }
 
   wrap.append(settings(root));
   return wrap;
 }
 
-function memberRow(member: BoardMember, isMe: boolean): HTMLLIElement {
+/**
+ * The crew is there, but this phone's link no longer opens it.
+ *
+ * Somebody was removed and the link rotated. Saying so beats a board that
+ * silently stops updating.
+ */
+function linkChanged(root: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+
+  const bar = document.createElement('div');
+  bar.className = 'banner banner-warn';
+  const text = document.createElement('span');
+  text.textContent = 'This crew’s link has changed, so this one no longer opens it. '
+    + 'Ask whoever started the crew for the new link — opening it puts you back on the board.';
+  bar.append(text);
+
+  const leave = document.createElement('button');
+  leave.type = 'button';
+  leave.className = 'btn btn-ghost';
+  leave.textContent = 'Leave this crew';
+  leave.addEventListener('click', () => {
+    void leaveCrew().then(() => renderCrew(root));
+  });
+
+  wrap.append(bar, leave);
+  return wrap;
+}
+
+function memberRow(member: BoardMember, isMe: boolean, root: HTMLElement, redraw: () => void): HTMLLIElement {
   const row = document.createElement('li');
   row.className = 'board-row';
 
@@ -219,7 +286,91 @@ function memberRow(member: BoardMember, isMe: boolean): HTMLLIElement {
     : 'nothing posted yet';
 
   row.append(name, when, stats);
+
+  // Only whoever started the crew sees this, and never against their own row.
+  if (!isMe && store.isCrewAdmin()) row.append(removeControl(member, root, redraw));
+
   return row;
+}
+
+/**
+ * Taking somebody off the board.
+ *
+ * Removing alone is theatre while they still hold the join link, so the
+ * second step offers to rotate it. Rotating means everyone else needs the
+ * new link, which is said plainly rather than discovered later.
+ */
+function removeControl(member: BoardMember, root: HTMLElement, redraw: () => void): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'board-admin';
+
+  const idle = () => {
+    wrap.replaceChildren();
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-ghost btn-danger';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', confirming);
+    wrap.append(remove);
+  };
+
+  const confirming = () => {
+    wrap.replaceChildren();
+
+    const warning = document.createElement('p');
+    warning.className = 'danger-note';
+    warning.textContent = `Take ${member.name} off the board? They still hold the join link, `
+      + 'so they can rejoin unless you also change it.';
+
+    const removeOnly = document.createElement('button');
+    removeOnly.type = 'button';
+    removeOnly.className = 'btn btn-ghost';
+    removeOnly.textContent = 'Just remove';
+    removeOnly.addEventListener('click', () => void run(false));
+
+    const andRotate = document.createElement('button');
+    andRotate.type = 'button';
+    andRotate.className = 'btn btn-danger-on';
+    andRotate.textContent = 'Remove and change the link';
+    andRotate.addEventListener('click', () => void run(true));
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-ghost';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', idle);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'backup-actions';
+    buttons.append(andRotate, removeOnly, cancel);
+
+    wrap.append(warning, buttons);
+  };
+
+  const run = async (rotate: boolean) => {
+    const at = location.hash;
+    try {
+      await removeMember(member.memberId);
+      if (rotate) await rotateLink();
+    } catch (error) {
+      toast(`Could not remove ${member.name}: ${(error as Error).message}`);
+      return;
+    }
+
+    await fetchBoard();
+    stillHere(at, () => {
+      if (rotate) {
+        toast('Link changed. Everyone still in the crew needs the new one.');
+        renderCrew(root);
+      } else {
+        toast(`${member.name} removed. They can rejoin with the link they have.`);
+        redraw();
+      }
+    });
+  };
+
+  idle();
+  return wrap;
 }
 
 function shareRow(): HTMLElement {
@@ -351,6 +502,9 @@ export function renderJoin(root: HTMLElement, crewId: string, secret: string): v
   name.value = store.crew()?.name ?? '';
   name.setAttribute('aria-label', 'Your name on the board');
 
+  const passcode = passcodeField();
+  passcode.value = store.crew()?.passcode ?? '';
+
   const join = document.createElement('button');
   join.type = 'submit';
   join.className = 'btn btn-primary';
@@ -359,25 +513,30 @@ export function renderJoin(root: HTMLElement, crewId: string, secret: string): v
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const chosen = name.value.trim();
-    if (!chosen) {
-      toast('Pick a name first — it is what your friends will see.');
+    const code = passcode.value.trim();
+    if (!chosen || !code) {
+      toast('A name and a passcode, so you can pick this up on another device.');
       return;
     }
+
     join.disabled = true;
     join.textContent = 'Joining…';
-    void joinCrew(crewId, secret, chosen)
+    void joinCrew(crewId, secret, chosen, code)
       .then(() => {
         location.hash = '#/friends';
       })
       .catch((error: Error) => {
         join.disabled = false;
         join.textContent = 'Join';
-        toast(`Could not join: ${error.message}`);
+        // The likeliest failure by far, and the one worth explaining.
+        toast(error.message.includes('name and passcode')
+          ? `Somebody on that board is already called ${chosen}. If that is you on another device, use the same passcode; otherwise pick another name.`
+          : `Could not join: ${error.message}`);
       });
   });
 
   form.append(name, join);
-  root.append(form);
+  root.append(form, passcode, passcodeNote());
 
   const skip = document.createElement('a');
   skip.className = 'btn btn-ghost';

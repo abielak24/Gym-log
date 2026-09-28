@@ -51,36 +51,76 @@ async function crewApi(request, response, path) {
   if (request.method === 'POST' && path === '/api/crew') {
     const crewId = `c${crews.size + 1}`;
     const secret = `s${crews.size + 1}`;
-    crews.set(crewId, secret);
+    crews.set(crewId, { secret, adminToken: `a${crews.size + 1}` });
     members.set(crewId, new Map());
-    return send(201, { crewId, secret });
+    return send(201, { crewId, secret, adminToken: crews.get(crewId).adminToken });
   }
 
   const put = /^\/api\/crew\/([^/]+)\/member\/([^/]+)$/.exec(path);
   const get = /^\/api\/crew\/([^/]+)$/.exec(path);
-  const crewId = put?.[1] ?? get?.[1];
+  const claim = /^\/api\/crew\/([^/]+)\/claim$/.exec(path);
+  const rotate = /^\/api\/crew\/([^/]+)\/rotate$/.exec(path);
+  const crewId = put?.[1] ?? get?.[1] ?? claim?.[1] ?? rotate?.[1];
 
-  if (!crewId || crews.get(crewId) !== request.headers['x-crew-secret']) return send(404, { error: 'no such crew' });
+  const crew = crewId ? crews.get(crewId) : undefined;
+  if (!crew || crew.secret !== request.headers['x-crew-secret']) return send(404, { error: 'no such crew' });
+
+  const isAdmin = request.headers['x-admin-token'] === crew.adminToken;
+  const fold = (name) => String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  // The token is a device; the passcode is the person. Either may write a row,
+  // so a claim from a second device does not lock the first one out.
+  const owns = (row) => row.token === request.headers['x-member-token']
+    || Boolean(row.passcode && request.headers['x-member-passcode'] === row.passcode);
+
+  if (rotate && request.method === 'POST') {
+    if (!isAdmin) return send(403, { error: 'only whoever started the crew can do that' });
+    crew.secret = `${crew.secret}-rotated`;
+    return send(200, { secret: crew.secret });
+  }
+
+  if (claim && request.method === 'POST') {
+    const wanted = JSON.parse(body);
+    const found = [...members.get(crewId).values()].find((m) => fold(m.name) === fold(wanted.name));
+    if (!found || !found.passcode || found.passcode !== wanted.passcode) {
+      return send(403, { error: 'that name and passcode do not match' });
+    }
+    found.token = request.headers['x-member-token'];
+    return send(200, { memberId: found.memberId });
+  }
 
   if (put && request.method === 'PUT') {
-    members.get(crewId).set(put[2], {
+    const crewMembers = members.get(crewId);
+    const existing = crewMembers.get(put[2]);
+    const token = request.headers['x-member-token'];
+    if (existing && !owns(existing)) return send(403, { error: 'not your member id' });
+
+    const summary = JSON.parse(body);
+    const clash = [...crewMembers.values()].find((m) => fold(m.name) === fold(summary.name) && m.memberId !== put[2]);
+    if (clash) return send(409, { error: 'that name is taken' });
+
+    crewMembers.set(put[2], {
       memberId: put[2],
-      name: JSON.parse(body).name,
+      name: summary.name,
       updatedAt: Date.now(),
-      summary: JSON.parse(body),
-      token: request.headers['x-member-token'],
+      summary,
+      // Mirrors the SQL, which never updates token_hash on a put.
+      token: existing?.token ?? token,
+      passcode: request.headers['x-member-passcode'] || existing?.passcode || '',
     });
     return send(200, { ok: true });
   }
 
   if (put && request.method === 'DELETE') {
+    const existing = members.get(crewId).get(put[2]);
+    const mine = existing && owns(existing);
+    if (existing && !mine && !isAdmin) return send(403, { error: 'not your member id' });
     members.get(crewId).delete(put[2]);
     return send(200, { ok: true });
   }
 
   if (get && request.method === 'GET') {
     return send(200, {
-      members: [...members.get(crewId).values()].map(({ token, ...rest }) => rest),
+      members: [...members.get(crewId).values()].map(({ token, passcode, ...rest }) => rest),
     });
   }
 
@@ -632,6 +672,8 @@ check('and warns that the link is the key', (await mine.locator('.banner-nudge')
 await mine.screenshot({ path: join(SHOTS, '16-crew-start.png'), fullPage: true });
 
 await mine.locator('input[aria-label="Your name on the board"]').fill('Alex');
+check('a passcode is asked for, and why', (await mine.locator('.note').allTextContents()).some((n) => n.includes('second device')));
+await mine.locator('input[aria-label="Your passcode"]').fill('alex-code');
 await mine.locator('.btn-primary', { hasText: 'Start a crew' }).click();
 await mine.waitForSelector('.board-list');
 
@@ -649,6 +691,7 @@ await theirs.waitForSelector('.add-exercise');
 check('the link lands the friend on a join screen', (await theirs.locator('.exercise-name').textContent()) === 'Join this crew');
 
 await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await theirs.locator('input[aria-label="Your passcode"]').fill('sam-code');
 await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
 await theirs.waitForSelector('.board-list');
 check('joining shows the board', (await theirs.locator('.board-name').count()) === 2);
@@ -706,6 +749,82 @@ check('and says so once held back', (await theirs.locator('.btn', { hasText: 'He
 
 const afterHiding = await theirs.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).lastPosted);
 check('a held-back lift stops being sent', afterHiding.includes('Squat') === false, afterHiding.slice(0, 120));
+
+// --- Only whoever started the crew can remove anyone -------------------------------
+await theirs.goto(`${url}#/friends`);
+await theirs.waitForSelector('.board-list');
+check('a member sees no way to remove anyone', (await theirs.locator('.board-admin').count()) === 0);
+
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+await mine.locator('.btn', { hasText: 'Refresh' }).click();
+await mine.waitForTimeout(800);
+check('whoever started it can remove the others', (await mine.locator('.board-admin').count()) === 1);
+check('but not themselves', (await mine.locator('.board-row', { hasText: '(you)' }).locator('.board-admin').count()) === 0);
+
+await mine.locator('.board-admin .btn', { hasText: 'Remove' }).click();
+await mine.waitForTimeout(150);
+check('removing says the link is the catch', (await mine.locator('.danger-note').textContent())?.includes('still hold the join link'));
+await mine.screenshot({ path: join(SHOTS, '19-remove.png'), fullPage: true });
+
+await mine.locator('.btn', { hasText: 'Cancel' }).click();
+await mine.waitForTimeout(150);
+check('and can be backed out of', (await mine.locator('.danger-note').count()) === 0);
+
+// --- Removing and changing the link ---------------------------------------------------
+const oldLink = await mine.locator('.share-link').textContent();
+await mine.locator('.board-admin .btn', { hasText: 'Remove' }).click();
+await mine.locator('.btn', { hasText: 'Remove and change the link' }).click();
+await mine.waitForTimeout(1200);
+
+check('the removed member is off the board', (await mine.locator('.board-name').count()) === 1);
+const newLink = await mine.locator('.share-link').textContent();
+check('and the join link is a different one', newLink !== oldLink, `${oldLink?.slice(-12)} -> ${newLink?.slice(-12)}`);
+
+// The removed friend's app now holds a link that opens nothing. Ask the
+// board directly rather than relying on when the tab last refreshed itself.
+await theirs.reload();
+await theirs.waitForSelector('.board-list, .banner-warn');
+if (await theirs.locator('.btn', { hasText: 'Refresh' }).count()) {
+  await theirs.locator('.btn', { hasText: 'Refresh' }).click();
+}
+await theirs.waitForSelector('.banner-warn', { timeout: 10000 }).catch(() => {});
+check('their app says the link changed rather than failing quietly', (await theirs.locator('.banner-warn').textContent())?.includes('link has changed'));
+await theirs.screenshot({ path: join(SHOTS, '20-link-changed.png'), fullPage: true });
+
+// The new link puts them back.
+await theirs.goto(newLink.trim());
+await theirs.waitForSelector('input[aria-label="Your passcode"]');
+await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await theirs.locator('input[aria-label="Your passcode"]').fill('sam-code');
+await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
+await theirs.waitForSelector('.board-list');
+check('and the new link puts them back on it', (await theirs.locator('.board-name').count()) === 2);
+
+// --- A second device claiming the same row ----------------------------------------------
+const laptopCtx = await phone();
+const laptop = await laptopCtx.newPage();
+await laptop.goto(newLink.trim());
+await laptop.waitForSelector('input[aria-label="Your passcode"]');
+await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await laptop.locator('input[aria-label="Your passcode"]').fill('sam-code');
+await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
+await laptop.waitForSelector('.board-list');
+check('the same name and passcode claims the row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
+check('and the claimed row is this device\u2019s own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
+
+const wrongCtx = await phone();
+const wrong = await wrongCtx.newPage();
+await wrong.goto(newLink.trim());
+await wrong.waitForSelector('input[aria-label="Your passcode"]');
+await wrong.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await wrong.locator('input[aria-label="Your passcode"]').fill('not-sams-code');
+await wrong.locator('.btn-primary', { hasText: 'Join' }).click();
+await wrong.waitForTimeout(900);
+check('a wrong passcode cannot take a name that is taken', (await wrong.locator('.board-list').count()) === 0);
+check('and says what to do about it', (await wrong.locator('.toast').textContent())?.includes('already called Sam'));
+await wrongCtx.close();
+await laptopCtx.close();
 
 // --- Pausing, and leaving ------------------------------------------------------------------
 await theirs.goto(`${url}#/friends`);

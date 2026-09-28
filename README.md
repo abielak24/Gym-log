@@ -163,6 +163,18 @@ trained, this week's daily goals, and each lift with its best set. Your
 pages, notes and sessions stay on the device. Hold a lift back from its own
 page, pause sharing entirely, or leave the crew and your row is deleted.
 
+You pick a **passcode** when you join. It is how you take your place on the
+board back on a new phone, or use the crew from a second device: the name
+plus the passcode claims your row rather than making a duplicate, and both
+phones go on posting to it afterwards. It does not protect your log, which
+never leaves the device anyway.
+
+**Whoever starts the crew** can remove anyone from the board. Removing alone
+does not stop them rejoining, since they still hold the join link — so the
+app offers to change the link at the same time, which does stop them, and
+means everyone else needs the new one. Anyone left holding the old link is
+told it has changed rather than watching a board quietly stop updating.
+
 It is a tab you visit, never something on the home screen. This app's job is
 answering "did I beat last week?", and a leaderboard should not be able to
 shout over that.

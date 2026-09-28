@@ -147,6 +147,26 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
 - **The crew is never in the way.** Posting is debounced and best-effort,
   failures are silent and retried, and the board shows its last good copy
   with an "as of" time. Nothing about logging a set may wait on the network.
+- **Every fetch result goes through one place.** The board's `show()` decides
+  what `ok`, `gone` and a failure mean, for the fetch on the way in and for
+  the Refresh button alike. Handling them separately meant a rotated link was
+  reported on one path and silently ignored on the other.
+- **A member token proves a device, not a person.** The passcode proves the
+  person, and is the only way to claim a row from a second device. Anything
+  about identity belongs there rather than in the token.
+- **A write to a row takes the token *or* the passcode.** A claim rebinds the
+  row's token to the new device, so requiring the token would lock the first
+  phone out of its own row — silently, because posting never reports failure,
+  and permanently, because it could not even leave. `ownsRow` in the worker
+  accepts either; a put never rebinds the token, only a claim does, and the
+  in-memory stores in `tests/` and `scripts/smoke.mjs` must mirror that.
+- **A new request header needs adding to the CORS allow-list.** The smoke
+  test serves the stub API from the app's own origin, so it never preflights
+  and will not catch a missing one; `tests/worker.test.ts` asserts the list
+  instead.
+- **Removing somebody only sticks if the link changes**, since they still
+  hold the old one. The app offers both as one choice and says what rotating
+  costs; it must never imply a removal is final when it is not.
 - **A focused button is not typing.** The store's subscriber skips a redraw
   while an `input` or `textarea` inside the view has focus; it must not skip
   for a focused button, which is usually the thing that just asked for the

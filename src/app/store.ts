@@ -50,6 +50,10 @@ export interface Crew {
   memberId: string;
   token: string;
   name: string;
+  /** Only the phone that started the crew holds this. */
+  adminToken?: string;
+  /** Set at join, so this row can be claimed from another device. */
+  passcode?: string;
 }
 
 const EMPTY: Stored = {
@@ -212,11 +216,16 @@ export function clearCrew(): void {
   emit();
 }
 
-export function renameInCrew(name: string): void {
+export function updateCrew(patch: Partial<Crew>): void {
   if (!state.crew) return;
-  state = { ...state, crew: { ...state.crew, name }, lastPosted: '' };
+  state = { ...state, crew: { ...state.crew, ...patch }, lastPosted: '' };
   persist();
   emit();
+}
+
+/** Only the phone that started the crew holds an admin token. */
+export function isCrewAdmin(): boolean {
+  return Boolean(state.crew?.adminToken);
 }
 
 export function crewPaused(): boolean {

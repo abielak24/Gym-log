@@ -173,7 +173,7 @@ phone, also works — it merges rather than overwrites — but starting where th
 log is keeps it simple.
 
 1. **Create an account.** A handle (letters, numbers, dots, dashes), a
-   password of at least 8 characters, twice.
+   password of at least 4 characters, twice.
 2. **Save the recovery code.** You get one screen, once. It is the only way
    back into your account if you forget the password, and nobody can look it
    up for you — not me, not Cloudflare, not whoever runs the server, because

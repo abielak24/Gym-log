@@ -12,6 +12,17 @@ import { isConfigured } from './crew';
 import { toast } from './panels';
 import * as store from './store';
 
+/**
+ * The shortest password this will take.
+ *
+ * Short enough that it is the rate limit doing the protecting rather than
+ * the password: ten wrong guesses put a handle to sleep for fifteen minutes,
+ * which makes guessing over the network hopeless. It would not survive
+ * somebody getting the database itself, key stretching or not, which is the
+ * deliberate trade for an app a few friends share.
+ */
+const MIN_PASSWORD = 4;
+
 /** Where a join link waits while somebody makes an account to open it with. */
 const PENDING = 'gym-notebook:pending-invite';
 
@@ -61,7 +72,9 @@ export function renderAuth(root: HTMLElement): void {
         : 'One account, and your log and your boards are behind it.'),
       form('Create account', ['handle', 'password', 'confirm'], async (values) => {
         if (values.password !== values.confirm) throw new Error('those two passwords are not the same');
-        if (values.password.length < 8) throw new Error('a password of at least 8 characters');
+        if (values.password.length < MIN_PASSWORD) {
+          throw new Error(`a password of at least ${MIN_PASSWORD} characters`);
+        }
         const made = await signUp(values.handle, values.password);
         showRecoveryCode(root, made.code, made.identity);
       }),
@@ -89,7 +102,9 @@ export function renderAuth(root: HTMLElement): void {
         + 'and using it signs out every device that was already signed in.'),
       form('Set a new password', ['handle', 'code', 'password', 'confirm'], async (values) => {
         if (values.password !== values.confirm) throw new Error('those two passwords are not the same');
-        if (values.password.length < 8) throw new Error('a password of at least 8 characters');
+        if (values.password.length < MIN_PASSWORD) {
+          throw new Error(`a password of at least ${MIN_PASSWORD} characters`);
+        }
         if (foldCode(values.code).length < 10) throw new Error('that does not look like a recovery code');
         const next = await recover(values.handle, values.code, values.password);
         showRecoveryCode(root, next.code, next.identity);
@@ -185,7 +200,7 @@ type Field = 'handle' | 'password' | 'confirm' | 'code';
 
 const LABELS: Record<Field, { label: string; type: string; hint: string }> = {
   handle: { label: 'Handle', type: 'text', hint: 'Letters, numbers, dots and dashes' },
-  password: { label: 'Password', type: 'password', hint: 'At least 8 characters' },
+  password: { label: 'Password', type: 'password', hint: `At least ${MIN_PASSWORD} characters` },
   confirm: { label: 'Password again', type: 'password', hint: '' },
   code: { label: 'Recovery code', type: 'text', hint: '' },
 };

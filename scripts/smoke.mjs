@@ -284,7 +284,7 @@ await context.addInitScript((api) => localStorage.setItem('gym-notebook:crew-api
  * Deriving the key is deliberately slow, so this is not instant - which is
  * itself worth knowing, since it is what every real sign-in costs.
  */
-const makeAccount = async (pg, handle, password = 'correct-horse') => {
+const makeAccount = async (pg, handle, password = 'pass') => {
   await pg.waitForSelector('.auth-form');
   if (await pg.locator('.btn-ghost', { hasText: 'Create an account' }).count()) {
     await pg.locator('.btn-ghost', { hasText: 'Create an account' }).click();
@@ -335,7 +335,7 @@ const waitForRows = async (pg, count) => {
   ).catch(() => {});
 };
 
-const signInAs = async (pg, handle, password = 'correct-horse') => {
+const signInAs = async (pg, handle, password = 'pass') => {
   await pg.waitForSelector('.auth-form');
   if (await pg.locator('.btn-ghost', { hasText: 'I already have an account' }).count()) {
     await pg.locator('.btn-ghost', { hasText: 'I already have an account' }).click();
@@ -357,10 +357,21 @@ check('and a link straight to the log does not get past it', (await page.locator
 
 await page.locator('.btn-ghost', { hasText: 'I already have an account' }).click();
 await page.locator('input[aria-label="Handle"]').fill('nobody');
-await page.locator('input[aria-label="Password"]').fill('not-a-password');
+await page.locator('input[aria-label="Password"]').fill('nope');
 await page.locator('.btn-primary', { hasText: 'Sign in' }).click();
 await page.waitForSelector('.toast', { timeout: 30000 });
 check('a handle nobody has is refused like a wrong password', (await page.locator('.toast').textContent())?.includes('do not match'));
+
+// Too short is still refused, and says so rather than failing at the server.
+await page.locator('.btn-ghost', { hasText: 'Create an account' }).click();
+await page.locator('input[aria-label="Handle"]').fill('alex');
+await page.locator('input[aria-label="Password"]').fill('ab');
+await page.locator('input[aria-label="Password again"]').fill('ab');
+await page.locator('.btn-primary', { hasText: 'Create account' }).click();
+await page.waitForSelector('.toast', { timeout: 20000 });
+// The previous toast has not faded yet, so read the newest rather than
+// whichever one the selector happens to resolve to first.
+check('a password too short to be one is refused', (await page.locator('.toast').last().textContent())?.includes('at least 4'));
 
 const recoveryCode = await makeAccount(page, 'alex');
 await page.waitForSelector('.split-list');
@@ -1023,7 +1034,7 @@ check('which it knows is its own', (await laptop.locator('.board-row', { hasText
 const wrongCtx = await phone();
 const wrong = await wrongCtx.newPage();
 await wrong.goto(newLink.trim());
-await signInAs(wrong, 'samlifts', 'not-sams-password');
+await signInAs(wrong, 'samlifts', 'nope');
 await wrong.waitForSelector('.toast', { timeout: 30000 });
 check('a wrong password gets nowhere near the board', (await wrong.locator('.board-list').count()) === 0);
 check('and says so without saying whether the handle exists', (await wrong.locator('.toast').textContent())?.includes('do not match'));
@@ -1130,8 +1141,8 @@ check('a lost password has a way back', (await lost.locator('.exercise-name').te
 
 await lost.locator('input[aria-label="Handle"]').fill('alex');
 await lost.locator('input[aria-label="Recovery code"]').fill(recoveryCode ?? '');
-await lost.locator('input[aria-label="Password"]').fill('a-brand-new-one');
-await lost.locator('input[aria-label="Password again"]').fill('a-brand-new-one');
+await lost.locator('input[aria-label="Password"]').fill('new1');
+await lost.locator('input[aria-label="Password again"]').fill('new1');
 await lost.locator('.btn-primary', { hasText: 'Set a new password' }).click();
 await lost.waitForSelector('.recovery-code', { timeout: 30000 });
 const nextCode = (await lost.locator('.recovery-code').textContent())?.trim();

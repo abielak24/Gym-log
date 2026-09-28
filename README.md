@@ -163,11 +163,17 @@ trained, this week's daily goals, and each lift with its best set. Your
 pages, notes and sessions stay on the device. Hold a lift back from its own
 page, pause sharing entirely, or leave the crew and your row is deleted.
 
-You pick a **passcode** when you join. It is how you take your place on the
-board back on a new phone, or use the crew from a second device: the name
-plus the passcode claims your row rather than making a duplicate, and both
-phones go on posting to it afterwards. It does not protect your log, which
-never leaves the device anyway.
+You pick a **passcode** when you join, and after that the link is a **log
+in**, not a sign-up. Opening it shows who is already on the board: tap your
+name, enter your passcode, and that phone takes over your row. A link that
+has been forwarded, re-sent or opened twice can't quietly put you on the
+board a second time under a slightly different spelling of your name — and a
+phone already in the crew skips the screen entirely and goes to the board.
+
+Only somebody genuinely new taps **I am new here** and picks a name. The
+passcode does not protect your log, which never leaves the device anyway;
+logging in on a new phone puts you back on the board, it does not bring your
+history with you. Use **Restore** for that.
 
 **Whoever starts the crew** can remove anyone from the board. Removing alone
 does not stop them rejoining, since they still hold the join link — so the

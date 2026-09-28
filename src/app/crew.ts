@@ -95,6 +95,18 @@ export async function createCrew(name: string, passcode: string): Promise<void> 
   await postSummary(true);
 }
 
+/**
+ * Put back whatever crew this phone was in.
+ *
+ * Joining writes the crew locally before it can know the server will accept
+ * it, so a refusal has to undo that. Leaving it half-joined meant a phone
+ * that looked like it was on a board it had never reached.
+ */
+function restore(before: ReturnType<typeof store.crew>): void {
+  if (before) store.setCrew(before);
+  else store.clearCrew();
+}
+
 export async function joinCrew(crewId: string, secret: string, name: string, passcode: string): Promise<void> {
   const existing = store.crew();
   // Rejoining the same crew keeps this phone's identity, so its row updates
@@ -105,15 +117,49 @@ export async function joinCrew(crewId: string, secret: string, name: string, pas
 
   store.setCrew({ id: crewId, secret, name, passcode, ...mine });
 
+  let result: PostResult;
   try {
-    await postSummary(true);
+    result = await postSummary(true);
   } catch (error) {
     // Somebody on this board already has that name. Before giving up, try it
     // as this person arriving on a second device.
     if (error instanceof ApiError && error.status === 409) {
-      await claimRow(name, passcode);
-      return;
+      try {
+        await claimRow(name, passcode);
+        return;
+      } catch (claimError) {
+        restore(existing);
+        throw claimError;
+      }
     }
+    restore(existing);
+    throw error;
+  }
+
+  // Posting swallows failures everywhere else, because logging a set must
+  // never wait on a network. Joining is the one time silence is wrong: the
+  // whole point of the tap was to reach the board.
+  if (result !== 'posted') {
+    restore(existing);
+    throw new Error('could not reach the board');
+  }
+}
+
+/**
+ * Take a place already on the board, on a phone that has none.
+ *
+ * This is the returning case, and the one that matters: without it, opening
+ * the link again is an invitation to type a slightly different name and
+ * appear twice.
+ */
+export async function logIn(crewId: string, secret: string, name: string, passcode: string): Promise<void> {
+  const existing = store.crew();
+  store.setCrew({ id: crewId, secret, name, passcode, memberId: randomId(), token: randomId() });
+
+  try {
+    await claimRow(name, passcode);
+  } catch (error) {
+    restore(existing);
     throw error;
   }
 }
@@ -217,6 +263,31 @@ export async function fetchBoard(): Promise<'ok' | 'failed' | 'gone' | 'no-crew'
   } catch (error) {
     // Reachable but will not open: the link has been rotated and this phone
     // is holding the old one.
+    if (error instanceof ApiError && error.status === 404) return 'gone';
+    return 'failed';
+  }
+}
+
+/**
+ * Read a board from a link alone, before this phone is on it.
+ *
+ * The link is the credential, so it is enough to see who is already there -
+ * which is what makes a log-in screen possible rather than a name typed from
+ * memory and a duplicate row when it is typed differently.
+ */
+export async function peekBoard(
+  crewId: string,
+  secret: string,
+): Promise<BoardMember[] | 'gone' | 'failed'> {
+  if (!isConfigured()) return 'failed';
+
+  try {
+    const response = await send(`/crew/${encodeURIComponent(crewId)}`, {
+      headers: { 'x-crew-secret': secret },
+    });
+    const { members } = await response.json() as { members: BoardMember[] };
+    return members;
+  } catch (error) {
     if (error instanceof ApiError && error.status === 404) return 'gone';
     return 'failed';
   }

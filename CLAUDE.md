@@ -151,6 +151,17 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   what `ok`, `gone` and a failure mean, for the fetch on the way in and for
   the Refresh button alike. Handling them separately meant a rotated link was
   reported on one path and silently ignored on the other.
+- **A join link is a log-in, not a sign-up.** It gets forwarded, re-sent and
+  opened twice, so the screen it opens must not default to creating a row.
+  `renderJoin` sends a phone already in that crew straight to the board
+  (repairing a rotated secret and re-posting, since it may have been removed
+  while holding the crew), and otherwise peeks at the board and offers those
+  names to log in as. Creating a row is behind **I am new here**. Every
+  duplicate member this app has produced came from a form shown too eagerly.
+- **A failed join must leave no trace.** `joinCrew` and `logIn` write the
+  crew locally before the server can accept it, so both restore whatever was
+  there on any failure. Joining is also the one place `postSummary` not
+  reaching the board is an error rather than something to retry quietly.
 - **A member token proves a device, not a person.** The passcode proves the
   person, and is the only way to claim a row from a second device. Anything
   about identity belongs there rather than in the token.

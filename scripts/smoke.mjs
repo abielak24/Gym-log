@@ -687,8 +687,14 @@ const theirsCtx = await phone();
 const theirs = await theirsCtx.newPage();
 theirs.on('pageerror', (error) => check('no page errors on the friend\u2019s phone', false, error.message));
 await theirs.goto(invite.trim());
-await theirs.waitForSelector('.add-exercise');
-check('the link lands the friend on a join screen', (await theirs.locator('.exercise-name').textContent()) === 'Join this crew');
+await theirs.waitForSelector('.board-list');
+check('the link opens a log in screen, not a sign up form', (await theirs.locator('.exercise-name').textContent()) === 'Log in');
+check('showing who is already on that board', (await theirs.locator('.board-name').textContent()) === 'Alex');
+check('and offering no way to make a row by accident', (await theirs.locator('input[aria-label="Your name on the board"]').count()) === 0);
+
+await theirs.locator('.btn', { hasText: 'I am new here' }).click();
+await theirs.waitForSelector('input[aria-label="Your name on the board"]');
+check('somebody genuinely new can still say so', (await theirs.locator('.exercise-name').textContent()) === 'Join this crew');
 
 await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await theirs.locator('input[aria-label="Your passcode"]').fill('sam-code');
@@ -792,37 +798,44 @@ await theirs.waitForSelector('.banner-warn', { timeout: 10000 }).catch(() => {})
 check('their app says the link changed rather than failing quietly', (await theirs.locator('.banner-warn').textContent())?.includes('link has changed'));
 await theirs.screenshot({ path: join(SHOTS, '20-link-changed.png'), fullPage: true });
 
-// The new link puts them back.
+// The new link puts them back - and because this phone is already in this
+// crew, without asking them to sign up a second time.
 await theirs.goto(newLink.trim());
-await theirs.waitForSelector('input[aria-label="Your passcode"]');
-await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
-await theirs.locator('input[aria-label="Your passcode"]').fill('sam-code');
-await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
 await theirs.waitForSelector('.board-list');
-check('and the new link puts them back on it', (await theirs.locator('.board-name').count()) === 2);
+check('without making them join again', (await theirs.locator('input[aria-label="Your name on the board"]').count()) === 0);
+check('landing them on the board itself', theirs.url().endsWith('#/friends'));
+
+// Ask the server, not the copy cached from before they were removed.
+await theirs.waitForTimeout(800);
+await theirs.locator('.btn', { hasText: 'Refresh' }).click();
+await theirs.waitForTimeout(800);
+check('and the new link puts their row back on the board', (await theirs.locator('.board-name').count()) === 2);
+check('as their own row, not a second one', (await theirs.locator('.board-row:has-text("(you)") .board-name').textContent())?.startsWith('Sam'));
 
 // --- A second device claiming the same row ----------------------------------------------
 const laptopCtx = await phone();
 const laptop = await laptopCtx.newPage();
 await laptop.goto(newLink.trim());
-await laptop.waitForSelector('input[aria-label="Your passcode"]');
-await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
-await laptop.locator('input[aria-label="Your passcode"]').fill('sam-code');
-await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
 await laptop.waitForSelector('.board-list');
-check('the same name and passcode claims the row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
+check('a new device is offered the names already on the board', (await laptop.locator('.board-name').count()) === 2);
+
+await laptop.locator('.board-row', { hasText: 'Sam' }).locator('.btn', { hasText: 'This is me' }).click();
+await laptop.locator('input[aria-label="Your passcode"]').fill('sam-code');
+await laptop.locator('.btn-primary', { hasText: 'Log in' }).click();
+await laptop.waitForSelector('.board-list .board-row:has-text("(you)")');
+check('logging in claims that row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
 check('and the claimed row is this device\u2019s own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
 
 const wrongCtx = await phone();
 const wrong = await wrongCtx.newPage();
 await wrong.goto(newLink.trim());
-await wrong.waitForSelector('input[aria-label="Your passcode"]');
-await wrong.locator('input[aria-label="Your name on the board"]').fill('Sam');
+await wrong.waitForSelector('.board-list');
+await wrong.locator('.board-row', { hasText: 'Sam' }).locator('.btn', { hasText: 'This is me' }).click();
 await wrong.locator('input[aria-label="Your passcode"]').fill('not-sams-code');
-await wrong.locator('.btn-primary', { hasText: 'Join' }).click();
+await wrong.locator('.btn-primary', { hasText: 'Log in' }).click();
 await wrong.waitForTimeout(900);
-check('a wrong passcode cannot take a name that is taken', (await wrong.locator('.board-list').count()) === 0);
-check('and says what to do about it', (await wrong.locator('.toast').textContent())?.includes('already called Sam'));
+check('a wrong passcode cannot take somebody else\u2019s place', (await wrong.locator('.board-row:has-text("(you)")').count()) === 0);
+check('and says so plainly', (await wrong.locator('.toast').textContent())?.includes('not the passcode for Sam'));
 await wrongCtx.close();
 await laptopCtx.close();
 

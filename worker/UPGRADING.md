@@ -1,113 +1,220 @@
-# Moving a live worker onto accounts
+# Redeploying the worker for accounts and sync
 
-Two jobs in the Cloudflare dashboard, in this order:
+Everything here happens in the Cloudflare dashboard. There is nothing to
+install and no terminal.
 
-1. **Rebuild the database** (five minutes)
-2. **Replace the worker's code** (five minutes)
+**The app itself needs nothing.** It deploys itself from GitHub and is
+already live. This is only the server behind it, which is still running the
+code from before accounts existed.
 
-Order matters. The new code writes tables that do not exist yet, so
-deploying it first gives every request a 500.
+## Before you start
 
-**This wipes the boards.** There is no migration: the old rows had no
-accounts in them, members were keyed by a device token, and crews had an
-admin token rather than an owner. None of that can be invented after the
-fact. Nobody's *log* is touched by any of this — logs live on phones and
-this never held one — but every crew and every board row goes, and everyone
-signs up again afterwards.
+**Save a copy of your log.** Open the app, Home, bottom of the page, **Save
+as JSON** → Share → Save to Files. Nothing below touches your phone, but it
+is one tap and this is the only backup you have.
 
-Where a label below does not match what you see, **Ctrl K** (⌘ K) opens a
-search box that will get you to the page by name.
+Three jobs, in this order:
+
+1. **Rebuild the database** — 5 minutes
+2. **Replace the worker's code** — 5 minutes
+3. **Make an account and check it works** — 5 minutes
+
+Order matters between 1 and 2. The new code writes to tables that do not
+exist yet, so deploying it first makes every request fail with a 500.
+
+**This wipes the boards, and nothing else.** There is no migration path: the
+old rows had no accounts in them, members were keyed to a device rather than
+a person, and a crew had an admin token rather than an owner. None of that
+can be invented after the fact. What goes: every crew and every row on every
+board. What does not: **your log**, which lives on your phone and has never
+been on this server at all.
+
+Cloudflare renames things in this dashboard fairly often. Where a label below
+does not match what you see, **Ctrl K** (⌘ K on a Mac) opens a search box
+that will get you to the right page by name.
 
 ---
 
 ## Job 1 — rebuild the database
 
-**1.1** Go to **https://dash.cloudflare.com/?to=/:account/workers/d1** and
-click **gym-log-crew**. (The `:account` is not a typo — Cloudflare fills your
-account in.)
+### 1.1 Open the console
 
-**1.2** Open its **Console** tab.
+Go to **https://dash.cloudflare.com/?to=/:account/workers/d1**
 
-**1.3** Drop the two old tables, **one at a time** — the console stops at the
-first error, and a table that was never there raises one:
+The `:account` is not a typo — Cloudflare fills your account in. If it lands
+you on an account picker, choose yours.
 
-```sql
-DROP TABLE IF EXISTS members;
-```
-```sql
-DROP TABLE IF EXISTS crews;
-```
+Click **gym-log-crew**, then its **Console** tab.
 
-**1.4** Now paste the whole of [`schema.sql`](schema.sql) and run it. This
-one **can** go in as a block: every statement is `IF NOT EXISTS`, so it is
-safe over itself.
+### 1.2 See what you have
 
-Copy it from
-**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/schema.sql**
-
-**1.5 Check it took.** Still in the console:
+Paste this and run it:
 
 ```sql
 SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;
 ```
 
-You want seven: **accounts**, **attempts**, **crews**, **log**, **members**,
-**sessions**, **settings**. **log** is where your workouts live once they
-sync; the rest are accounts and boards.
+If it lists only **crews** and **members**, you are where this guide expects.
+If it already lists **accounts**, you have done part of this before — skip to
+1.4 and just run the schema.
+
+### 1.3 Drop the two old tables
+
+**One at a time.** The console stops at the first error, and pasting both
+together means an error on the first silently skips the second.
+
+```sql
+DROP TABLE IF EXISTS members;
+```
+
+Clear the box, then:
+
+```sql
+DROP TABLE IF EXISTS crews;
+```
+
+Both should say success. This is the step that loses the boards.
+
+### 1.4 Create the new tables
+
+Open
+**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/schema.sql**
+
+Select all, copy, paste the whole thing into the console, run it.
+
+This one **can** go in as a single block — every statement is
+`CREATE TABLE IF NOT EXISTS` or `CREATE INDEX IF NOT EXISTS`, so there is
+nothing in it that can error on a second run.
+
+### 1.5 Check it took
+
+```sql
+SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;
+```
+
+You want **seven**:
+
+| Table | What it holds |
+| --- | --- |
+| `accounts` | a handle, a salt, a hash of your derived key, a hash of your recovery code |
+| `sessions` | one row per signed-in device |
+| `attempts` | wrong-password counts, so a password cannot be worked through |
+| `settings` | one server-held secret, behind the invented salts |
+| `crews` | a board, and who owns it |
+| `members` | a row on a board |
+| `log` | **your workouts**, once they sync |
+
+Missing `log` means the paste was cut short. Run 1.4 again.
 
 ---
 
 ## Job 2 — replace the worker's code
 
-**2.1** Open
-**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/paste-into-dashboard.js**,
-select all, copy.
+### 2.1 Copy the new code
 
-**2.2** Go to **https://dash.cloudflare.com/?to=/:account/workers-and-pages**
-→ **gym-log-crew** → **Edit code** (older dashboards: **Quick edit**, or
-under the **···** menu).
+Open
+**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/paste-into-dashboard.js**
 
-**2.3** Select all in the editor and paste over it. The old code must be gone
-entirely.
+That is the plain-text version — no line numbers, nothing to trip over.
+Select all (**Ctrl A** / **⌘ A**), copy. It starts with a
+`// Generated by worker/build.mjs` comment and the last character is a `}`.
 
-**2.4** **Deploy**.
+### 2.2 Open the worker's editor
 
-**2.5** Check **Settings → Bindings** still has a D1 binding named exactly
-**DB** pointing at **gym-log-crew**. If it is missing, add it and deploy
-again.
+Go to **https://dash.cloudflare.com/?to=/:account/workers-and-pages**
+
+Click **gym-log-crew**. Find **Edit code** — a button near the top right on
+the current dashboard; on older ones it is **Quick edit**, or it is under the
+**···** menu next to Deploy.
+
+### 2.3 Paste over it
+
+Click inside the editor, **select all**, **paste**. The old code has to be
+gone entirely — not pasted above or below what is already there.
+
+### 2.4 Deploy
+
+**Deploy**, top right. Sometimes labelled **Save and deploy**. Wait for it to
+confirm.
+
+### 2.5 Check the database is still attached
+
+**Settings → Bindings** (older dashboards: **Settings → Variables**). There
+should be a **D1 database** binding:
+
+- Variable name: **DB** — exactly that, capitals, no spaces
+- Database: **gym-log-crew**
+
+If it is there, leave it alone. If it is missing, add it and **Deploy** again.
 
 ---
 
-## Then check it, in the app
+## Job 3 — make an account
 
-Open the app. It should show **Create an account** — that screen existing at
-all is the proof the new code is live, since the old worker had nothing to
-sign in to.
+Open the app: **https://abielak24.github.io/Gym-log/**
 
-1. Make an account. Handle, password, password again.
-2. You are shown a **recovery code**. Save it somewhere that is not the
-   phone; it is the only way back in if you forget the password, and nobody
-   can look it up for you. Tick the box and continue.
-3. The app opens on your log, exactly as before.
-4. Friends tab → **Start a crew** → copy the link.
-5. Open the link in a private window. It should ask for an account first and
-   say a friend invited you, then drop you straight into the crew once you
-   have made one.
-6. Join under a different board name. Two rows.
-7. Back on your own screen, **Refresh**. There should be a **Remove** control
-   next to their row, because you own the crew.
+If it does not show a **Create an account** screen, you are looking at a
+cached copy. Close the app completely — if it is on your home screen, swipe
+the card away rather than just backgrounding it — and reopen.
 
-Then the part worth testing properly — the log following you:
+**Do this on the phone that has your real log**, if one of them does. Signing
+up adopts whatever is already on that device and sends it to your new
+account. Signing up on an empty device first, and then signing in on the
+phone, also works — it merges rather than overwrites — but starting where the
+log is keeps it simple.
 
-8. On your phone, log a real set into a split, then go to Home and tap
-   **Sync now** at the bottom. It should say *Synced*.
-9. Open the app somewhere else (another browser, a laptop, a private window)
-   and **sign in** with the same handle and password. Your splits and that
-   set should arrive on their own within a few seconds, and the demo data
-   should not be there.
-10. Change something on that second device, wait a moment, then tap **Sync
-    now** on the phone. The change should appear.
+1. **Create an account.** A handle (letters, numbers, dots, dashes), a
+   password of at least 8 characters, twice.
+2. **Save the recovery code.** You get one screen, once. It is the only way
+   back into your account if you forget the password, and nobody can look it
+   up for you — not me, not Cloudflare, not whoever runs the server, because
+   it is hashed on your phone before it is ever sent. Put it somewhere that
+   is not this phone. Tick the box, **Continue**.
+3. The app opens on your log, exactly as it was.
 
-If **Create an account** fails, the worker cannot reach the database — that
-is job 1 or the `DB` binding, not the code. If accounts work but nothing
-syncs, the **log** table is missing: re-run `schema.sql`.
+---
+
+## Then check the two things that are new
+
+### Your log follows you
+
+1. Log a real set into a split.
+2. Home → bottom of the page → **Sync now**. It should say **Synced**.
+3. Open the app somewhere else — another browser, a laptop, a private window
+   — and **sign in** with the same handle and password.
+4. Your splits and that set should arrive on their own within a few seconds,
+   and the demo data should not be there.
+5. Change something on that second device, wait a moment, then **Sync now**
+   on the phone. The change should appear.
+
+### The board knows who you are
+
+6. Friends tab → **Start a crew** → copy the link.
+7. Open the link in a private window. It should ask for an account first and
+   say a friend invited you, then drop you into the crew once you have made
+   one.
+8. Join under a different board name. Two rows.
+9. Back on your own screen, **Refresh**. There should be a **Remove** control
+   next to their row, because you own the crew. Removing offers to change the
+   link at the same time, which is what makes a removal stick.
+
+---
+
+## If something does not work
+
+| What you see | What it means |
+| --- | --- |
+| No **Create an account** screen | Cached app. Close it fully and reopen. |
+| **Create an account** fails | The worker cannot reach the database. Job 1, or the `DB` binding in 2.5. |
+| Accounts work, **Sync now** says it cannot reach the server | The `log` table is missing. Re-run 1.4. |
+| *that handle is taken* | Somebody has it, or you already signed up. Sign in instead. |
+| *too many attempts* | Ten wrong passwords. It clears itself after fifteen minutes. |
+| Sign-in spins for a few seconds | Expected. Your phone is deliberately stretching the password; it is the slow step that makes a stolen database useless. |
+| A friend's old link says it has changed | It was rotated when somebody was removed. Send them the current one. |
+
+## What you do not have to do
+
+- Nothing on GitHub. The app deploys itself when tests pass.
+- No `wrangler`, no terminal, no npm.
+- No changes to the app's settings. It already points at
+  `gym-log-crew.abielak24.workers.dev`.

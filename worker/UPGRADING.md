@@ -77,14 +77,23 @@ Both should say success. This is the step that loses the boards.
 
 ### 1.4 Create the new tables
 
+**Same box.** Clear it first — the DROP from 1.3 is still in there.
+
 Open
-**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/schema.sql**
+**https://raw.githubusercontent.com/abielak24/Gym-log/main/worker/schema-paste.sql**
 
 Select all, copy, paste the whole thing into the console, run it.
 
-This one **can** go in as a single block — every statement is
-`CREATE TABLE IF NOT EXISTS` or `CREATE INDEX IF NOT EXISTS`, so there is
-nothing in it that can error on a second run.
+That is `schema.sql` with the comments and blank lines taken out and each
+statement on one line. The console splits a paste on semicolons and refuses
+the empty fragments a commented, spaced-out file leaves behind —
+*"Requests without any query are not supported"*. Same tables either way;
+`schema.sql` is still the readable one.
+
+It can go in as a single block, and every statement is
+`CREATE TABLE IF NOT EXISTS` or `CREATE INDEX IF NOT EXISTS`, so running it
+twice changes nothing. If your console insists on one statement at a time,
+each line of that file is a complete statement — paste them one by one.
 
 ### 1.5 Check it took
 
@@ -207,6 +216,7 @@ log is keeps it simple.
 | No **Create an account** screen | Cached app. Close it fully and reopen. |
 | **Create an account** fails | The worker cannot reach the database. Job 1, or the `DB` binding in 2.5. |
 | Accounts work, **Sync now** says it cannot reach the server | The `log` table is missing. Re-run 1.4. |
+| *Requests without any query are not supported* | The console was handed comments or a blank fragment. Use `schema-paste.sql`, not `schema.sql`. |
 | *that handle is taken* | Somebody has it, or you already signed up. Sign in instead. |
 | *too many attempts* | Ten wrong passwords. It clears itself after fifteen minutes. |
 | Sign-in spins for a few seconds | Expected. Your phone is deliberately stretching the password; it is the slow step that makes a stolen database useless. |

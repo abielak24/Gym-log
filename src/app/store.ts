@@ -14,7 +14,7 @@ import { createSampleDaily, createSamples } from '../core/sample';
 import { buildTemplates } from '../core/templates';
 import { entriesFor, pruneLog, seedFor, type DailyEntry, type DailyLog } from '../core/daily';
 import type { BoardMember } from './crew';
-import { writeCell } from '../core/edit';
+import { retitle, writeCell } from '../core/edit';
 import { normalizeName } from '../core/normalize';
 
 const KEY = 'gym-notebook:v1';
@@ -382,6 +382,21 @@ export function deleteSession(id: string): void {
   state = { ...state, sessions: state.sessions.filter((s) => s.id !== id) };
   persist();
   emit();
+}
+
+/**
+ * Re-file a session under a different split, keeping what was written on it.
+ *
+ * The usual reason is tapping the wrong split and noticing after a set or
+ * two, so nothing on the page is touched except its title.
+ */
+export function retitleSession(id: string, title: string): void {
+  const session = state.sessions.find((s) => s.id === id);
+  if (!session) return;
+
+  const text = retitle(session.text, title);
+  if (text === session.text) return;
+  saveText(id, text, parsePage(text).date);
 }
 
 export function clearSamples(): void {

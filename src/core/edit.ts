@@ -106,6 +106,39 @@ function tidy(lines: string[]): string {
   return trimTrailingBlanks(out).join('\n');
 }
 
+/**
+ * Move a page to a different split, keeping everything written on it.
+ *
+ * The page title is what files a session under a split, so re-filing one is
+ * a rewrite of its header line — and only that line. The date stays exactly
+ * where it was written, at whichever end of the header it was.
+ *
+ * A header that is only a date matches both ends at once, so it has no side
+ * to preserve. That case takes the order the app itself writes, `9/22 Legs`.
+ */
+export function retitle(text: string, title: string): string {
+  const name = title.trim();
+  const all = text.split('\n');
+  const page = parsePage(text);
+
+  if (page.headerLine === null) return [name, ...all].join('\n');
+
+  const header = all[page.headerLine].trim();
+  const trailing = /\s*(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s*$/.exec(header);
+  const leading = /^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)(?:\s+|$)/.exec(header);
+  const date = leading?.[1] ?? trailing?.[1];
+
+  let rebuilt: string;
+  if (!date) rebuilt = name;
+  else if (!name) rebuilt = date;
+  else if (page.title.trim() === '') rebuilt = `${date} ${name}`;
+  else if (trailing) rebuilt = `${name} ${date}`;
+  else rebuilt = `${date} ${name}`;
+
+  all[page.headerLine] = rebuilt;
+  return all.join('\n');
+}
+
 /** Add an exercise heading with no sets yet, so the grid grows a row for it. */
 export function addExercise(text: string, name: string): string {
   const page = parsePage(text);

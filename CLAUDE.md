@@ -112,6 +112,11 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
 - **Ghost text only renders when the cursor's block is the last on the page**,
   because there is nothing below it to collide with. The hint bar covers the
   mid-page case.
+- **Re-filing a session is `retitle`, and touches only the header line.**
+  A header that is just a date matches both ends at once, so it has no side
+  to preserve and takes the app's own order (`9/22 Legs`). A header with no
+  date is still the title as far as the parser is concerned, so it is
+  replaced rather than having a second one stacked above it.
 - **A cell's lines go through `asCellLines` on the way in.** On a page, a
   line with no digits is an exercise heading; inside a cell that is always
   wrong, because the cell already names the exercise, and such a line would

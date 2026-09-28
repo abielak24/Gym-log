@@ -71,6 +71,10 @@ typing, and again the instant the app is backgrounded or closed. Grey text
 in a cell is last session's, shown for reference; anything in normal text is
 yours and is already saved.
 
+**Tapped the wrong split?** At the bottom of an open session, **Move to
+another split** re-files it and carries everything you already typed, and
+**Delete this workout** removes the day entirely, behind a second tap.
+
 **Finishing a session later.** A workout logged in a hurry is rarely
 complete. Any column's date can be tapped to open that session for editing,
 so a half-filled Monday can be finished on Wednesday without retyping it.

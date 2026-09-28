@@ -85,6 +85,7 @@ export function renderTemplate(root: HTMLElement, key: string, editing?: string)
   if (open) {
     root.append(addExerciseRow(template, open, root));
     root.append(noteHint());
+    root.append(sessionActions(template, open));
   } else {
     root.append(startButton(template, root));
   }
@@ -209,6 +210,107 @@ function header(template: Template, openId?: string, todayId?: string): HTMLElem
   text.append(title, when);
   bar.append(text, actions);
   return bar;
+}
+
+/**
+ * Fixing a session opened by mistake.
+ *
+ * Tapping the wrong split is easy and, until now, permanent. Moving it keeps
+ * whatever was already typed, which is nearly always what was wanted;
+ * deleting is there for the session that should not exist at all, behind a
+ * second tap because it cannot be undone.
+ */
+function sessionActions(template: Template, sessionId: string): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'session-actions';
+
+  const render = (mode: 'idle' | 'moving' | 'deleting') => {
+    wrap.replaceChildren();
+
+    if (mode === 'idle') {
+      wrap.append(
+        button('Move to another split', 'ghost', () => render('moving')),
+        button('Delete this workout', 'ghost danger', () => render('deleting')),
+      );
+      return;
+    }
+
+    if (mode === 'deleting') {
+      const warning = document.createElement('p');
+      warning.className = 'danger-note';
+      warning.textContent = 'This erases the whole day, including anything written on it. It cannot be undone.';
+
+      wrap.append(warning, row([
+        button('Delete', 'danger-on', () => {
+          store.deleteSession(sessionId);
+          location.hash = `#/t/${encodeURIComponent(template.key)}`;
+        }),
+        button('Keep it', 'ghost', () => render('idle')),
+      ]));
+      return;
+    }
+
+    const note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = 'Everything written today comes with it.';
+    wrap.append(note);
+
+    const choices = document.createElement('div');
+    choices.className = 'cal-panel-row';
+
+    for (const other of store.getTemplates()) {
+      if (other.key === template.key) continue;
+      choices.append(button(other.name, 'chip', () => {
+        store.retitleSession(sessionId, other.name);
+        location.hash = `#/t/${encodeURIComponent(other.key)}/${encodeURIComponent(sessionId)}`;
+      }));
+    }
+
+    const form = document.createElement('form');
+    form.className = 'add-exercise';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'search';
+    input.placeholder = 'Or a new split';
+    input.autocapitalize = 'words';
+    input.setAttribute('aria-label', 'Move to a new split');
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = input.value.trim();
+      if (!name) return;
+      store.retitleSession(sessionId, name);
+      location.hash = `#/t/${encodeURIComponent(normalizeName(name))}/${encodeURIComponent(sessionId)}`;
+    });
+
+    const move = document.createElement('button');
+    move.type = 'submit';
+    move.className = 'btn btn-ghost';
+    move.textContent = 'Move';
+
+    form.append(input, move);
+    wrap.append(choices, form, button('Cancel', 'ghost', () => render('idle')));
+  };
+
+  render('idle');
+  return wrap;
+}
+
+function row(children: HTMLElement[]): HTMLElement {
+  const element = document.createElement('div');
+  element.className = 'backup-actions';
+  element.append(...children);
+  return element;
+}
+
+function button(label: string, variant: string, onClick: () => void): HTMLButtonElement {
+  const element = document.createElement('button');
+  element.type = 'button';
+  element.className = `btn ${variant.split(' ').map((v) => `btn-${v}`).join(' ')}`;
+  element.textContent = label;
+  element.addEventListener('click', onClick);
+  return element;
 }
 
 function grid(template: Template, root: HTMLElement, editableId: string | undefined, onInput: () => void): HTMLElement {

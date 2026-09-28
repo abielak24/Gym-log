@@ -554,6 +554,62 @@ check('and everything written online is still there', (await page.locator('.summ
 await page.screenshot({ path: join(SHOTS, '10-offline.png'), fullPage: true });
 await context.setOffline(false);
 
+// --- Fixing a workout opened by mistake --------------------------------------
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+await page.locator('input[aria-label="New split"]').fill('Arms');
+await page.locator('button[aria-label="Add split"]').click();
+await page.waitForSelector('.grid');
+await page.locator('.add-exercise input').first().fill('Hammer Curls');
+await page.locator('.add-exercise .btn-ghost').first().click();
+await page.waitForTimeout(200);
+await page.locator('textarea[data-exercise="Hammer Curls"]').fill('30x12\n30x12');
+await page.waitForTimeout(600);
+
+check('an open session offers a way out of a wrong tap', (await page.locator('.session-actions .btn').count()) === 2);
+
+// Move it, keeping what was typed.
+await page.locator('.btn', { hasText: 'Move to another split' }).click();
+await page.waitForTimeout(150);
+check('moving offers the splits you already have', (await page.locator('.session-actions .btn-chip').count()) > 0);
+await page.screenshot({ path: join(SHOTS, '18-session-actions.png'), fullPage: true });
+
+await page.locator('.session-actions input').fill('Pull Day');
+await page.locator('.session-actions .add-exercise .btn-ghost').click();
+await page.waitForSelector('.split-head h1');
+await page.waitForTimeout(400);
+check('the session moves to the split you name', (await page.locator('.split-head h1').textContent()) === 'Pull Day');
+check('carrying everything already written', (await page.locator('textarea[data-exercise="Hammer Curls"]').inputValue()) === '30x12\n30x12');
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+const afterMove = await page.locator('.split-name').allTextContents();
+check('the split it came from is gone, having nothing left in it', afterMove.includes('Arms') === false, afterMove.join(', '));
+check('and the one it went to is there', afterMove.includes('Pull Day'));
+
+// Now delete it outright.
+await page.locator('.split-link', { hasText: 'Pull Day' }).click();
+await page.waitForSelector('.session-actions');
+await page.locator('.btn', { hasText: 'Delete this workout' }).click();
+await page.waitForTimeout(150);
+check('deleting says what it costs first', (await page.locator('.session-actions .danger-note').textContent())?.includes('cannot be undone'));
+
+await page.locator('.btn', { hasText: 'Keep it' }).click();
+await page.waitForTimeout(150);
+check('and can be backed out of', (await page.locator('.session-actions .danger-note').count()) === 0);
+
+await page.locator('.btn', { hasText: 'Delete this workout' }).click();
+await page.locator('.session-actions .btn-danger-on').click();
+await page.waitForTimeout(400);
+
+await page.goto(`${url}#/home`);
+await page.waitForSelector('.split-list');
+check('deleting removes the workout', (await page.locator('.split-name').allTextContents()).includes('Pull Day') === false);
+
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+check('and takes it off the calendar', (await page.locator('.cal-split', { hasText: 'Pull' }).count()) === 0);
+
 // --- A crew: one phone invites another ------------------------------------------
 const phone = async (colorScheme = 'dark') => {
   const ctx = await browser.newContext({

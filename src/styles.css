@@ -878,3 +878,19 @@ body {
 
 .board-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .board-footer .note { margin: 0; }
+
+/* Fixing a session opened by mistake --------------------------------------- */
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.session-actions .note,
+.session-actions .danger-note { width: 100%; margin: 0; }
+.session-actions .cal-panel-row { width: 100%; }
+.session-actions .add-exercise { width: 100%; margin: 0; }

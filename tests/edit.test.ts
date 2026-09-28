@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addExercise, writeCell } from '../src/core/edit';
+import { addExercise, retitle, writeCell } from '../src/core/edit';
 import { parsePage } from '../src/core/parse';
 
 const PAGE = `Back/Bis/Shoulders 9/16
@@ -173,5 +173,53 @@ describe('a comment typed into a cell', () => {
     const text = writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '10', 'shoulder felt tight']);
     const again = writeCell(text, 'Pull Ups', ['10', '10', '// shoulder felt tight']);
     expect(again).toBe(text);
+  });
+});
+
+describe('moving a page to a different split', () => {
+  it('rewrites the name and leaves a leading date where it was', () => {
+    expect(retitle('9/22 Chest/Tris\nBench\n135x8', 'Back/Bis')).toBe('9/22 Back/Bis\nBench\n135x8');
+  });
+
+  it('keeps a date written after the name there too', () => {
+    expect(retitle('Chest/Tris 9/22\nBench\n135x8', 'Back/Bis')).toBe('Back/Bis 9/22\nBench\n135x8');
+  });
+
+  it('keeps every set exactly as it was', () => {
+    const page = parsePage(retitle(PAGE, 'Pull Day'));
+    expect(page.title).toBe('Pull Day');
+    expect(page.exercises.map((e) => e.name)).toEqual(['Pull Ups', 'Lat Pull Down', 'Curls']);
+    expect(page.exercises[0].sets.map((s) => s.text)).toEqual(['8', '10x8', '10x8']);
+  });
+
+  it('keeps the day the page belongs to', () => {
+    expect(parsePage(retitle('9/22 Chest\nBench\n135x8', 'Legs')).date)
+      .toBe(parsePage('9/22 Chest\nBench\n135x8').date);
+  });
+
+  it('adds a header to a page that has none', () => {
+    // A page starting with a set has no header line at all.
+    expect(retitle('135x8', 'Chest')).toBe('Chest\n135x8');
+  });
+
+  it('writes the app’s own order when the header was only a date', () => {
+    // Only a date matches both ends, so there is no side to preserve.
+    expect(retitle('9/22', 'Legs')).toBe('9/22 Legs');
+    expect(retitle('9/22\nBench\n135x8', 'Legs')).toBe('9/22 Legs\nBench\n135x8');
+  });
+
+  it('replaces a header that carries no date, because that line is the title', () => {
+    // The parser reads the first non-set line as the title whether or not it
+    // has a date on it, so re-filing replaces it rather than stacking a
+    // second one above it.
+    expect(retitle('Chest day\nBench\n135x8', 'Legs')).toBe('Legs\nBench\n135x8');
+  });
+
+  it('can take the name off again without losing the date', () => {
+    expect(retitle('9/22 Chest', '')).toBe('9/22');
+  });
+
+  it('survives being moved back and forth', () => {
+    expect(retitle(retitle(PAGE, 'Pull Day'), 'Back/Bis/Shoulders')).toBe(PAGE);
   });
 });

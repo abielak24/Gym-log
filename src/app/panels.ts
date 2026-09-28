@@ -9,6 +9,7 @@
 import { backupNow, restoreFrom } from './backup';
 import { friendlyDate } from './format';
 import { logOut } from './auth';
+import { syncBeforeLeaving, syncNow, syncState } from './sync';
 import * as store from './store';
 
 export function banner(text: string, kind: string): HTMLElement {
@@ -117,6 +118,15 @@ export function backupPanel(): HTMLElement {
  * expect it gone, but there is no copy anywhere else yet, so erasing it here
  * would be deleting the only one. "Start fresh" is the deliberate way.
  */
+/** When the log last reached the server, in words. */
+function asOf(at: number): string {
+  if (!at) return 'Not synced yet.';
+  const days = Math.round((Date.now() - at) / 86400000);
+  return days <= 0
+    ? `Synced at ${new Date(at).toLocaleTimeString()}.`
+    : `Last synced ${friendlyDate(new Date(at).toISOString().slice(0, 10))}.`;
+}
+
 export function accountPanel(): HTMLElement {
   const box = document.createElement('div');
   box.className = 'backup-box account-box';
@@ -132,14 +142,37 @@ export function accountPanel(): HTMLElement {
     : 'Not signed in.';
   box.append(who);
 
+  const state = syncState();
+  const where = document.createElement('p');
+  where.className = 'note';
+  where.textContent = state.running ? 'Syncing\u2026'
+    : state.last === 'offline' ? `Could not reach the server. ${asOf(state.at)}`
+      : state.last === 'not-configured' ? 'Syncing is not set up on this copy of the app.'
+        : asOf(state.at);
+  box.append(where);
+
   const kept = document.createElement('p');
   kept.className = 'note';
-  kept.textContent = 'Signing out leaves this log on the phone \u2014 it is still the only copy, '
-    + 'so save one first if you are handing the phone on.';
+  kept.textContent = 'Signing out leaves this log on the phone. Your account keeps its own copy, '
+    + 'so signing in on another device brings it there too.';
   box.append(kept);
 
   const row = document.createElement('div');
   row.className = 'account-actions';
+
+  // Never disabled while a sync is in flight: nothing redraws this panel
+  // when one finishes, so it would sit greyed out until the next render.
+  // A second call while busy is harmless and says so.
+  row.append(action('Sync now', () => {
+    void syncNow().then((result) => {
+      toast(result === 'offline' ? 'Could not reach the server. It will try again.'
+        : result === 'signed-out' ? 'That session has expired. Sign in again.'
+          : result === 'busy' ? 'Already syncing.'
+            : result === 'synced' ? 'Synced.'
+              : 'Already up to date.');
+    });
+  }));
+
   row.append(action('Sign out', () => {
     void logOut().then(() => {
       location.hash = '#/home';
@@ -174,10 +207,12 @@ function startFresh(): HTMLElement {
 
     const warning = document.createElement('p');
     warning.className = 'danger-note';
-    warning.textContent = 'This erases every page, split and tracked day on this phone. It cannot be undone.';
+    warning.textContent = 'This erases every page, split and tracked day \u2014 and because your log syncs, '
+      + 'it erases them on every device signed in to your account, not just this one. It cannot be undone.';
 
     const erase = action('Erase everything', () => {
       store.clearEverything();
+      syncBeforeLeaving();
       toast('Everything cleared. This is a brand new log.');
     });
     erase.classList.add('btn-danger-on');

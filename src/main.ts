@@ -15,6 +15,7 @@ import { flushDaily, renderDailyPage } from './app/daily-view';
 import { renderCrew, renderJoin } from './app/crew-view';
 import { parseJoinLink, postSummary } from './app/crew';
 import { signedIn } from './app/auth';
+import { startSyncing } from './app/sync';
 import { rememberInvite, renderAuth } from './app/auth-view';
 
 const view = document.getElementById('view') as HTMLElement;
@@ -41,6 +42,7 @@ function route(): void {
     return;
   }
   document.body.classList.remove('signed-out');
+  startSyncing();
 
   switch (screen) {
     case 'cal':

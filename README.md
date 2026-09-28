@@ -8,8 +8,9 @@ oldest to newest. Today's column is the one on the right, and it's the only
 one you can type into — so logging a set is a tap and a few characters, with
 last week's numbers sitting right beside them.
 
-Your log lives on your phone and works with no signal. You sign in once per
-device, and that account is what puts you on a board with your friends.
+Your log lives on your phone and works with no signal. It also follows your
+account, so the phone and the laptop hold the same log without you doing
+anything about it.
 
 ```
                 9/8      9/15     9/22
@@ -141,8 +142,9 @@ from Home.
 
 ## Backing up
 
-Your log lives in this phone's browser storage and nowhere else — the account
-does not yet carry it. Losing the phone loses the log, so the bottom of Home has **Save as text**, which hands
+Your log lives in this phone's browser storage and on your account. Losing
+the phone no longer loses the log — signing in on another one brings it
+back — but losing the account would, so the bottom of Home has **Save as text**, which hands
 iOS a plain `.txt` file: *Share → Save to Files → iCloud Drive*. The file is the
 notebook, in the format above, readable in any text editor forever. **Save as
 JSON** is the same data in a form that restores byte-exactly, and **Restore**
@@ -172,8 +174,32 @@ device that was signed in on the old one.
 
 Signing in is a token in this device's storage, so it is asked for once and
 then never again: the app opens in a basement with no signal exactly as it
-did before. Signing out leaves your log where it is, because there is no
-copy of it anywhere else — see **Backing up**.
+did before.
+
+## Two phones, one log
+
+Sign in on a second device and your log arrives. Write a set on either one
+and it turns up on the other, without a button — a change goes up a few
+seconds after you stop typing, and again the moment the app is backgrounded,
+because iOS closes a backgrounded web app without warning.
+
+Nothing waits on the network. Writing a set is a local write that is done
+before the screen has finished redrawing; syncing happens afterwards, fails
+quietly, and tries again. A gym with no signal works exactly as it always
+did, and catches up when you leave.
+
+**It merges rather than overwrites.** The log is not sent as one blob, or a
+day written on the phone would erase a day written on the laptop. Each
+workout, tracked day, split and starred lift travels on its own, and the
+newer of any pair wins. Deleting travels too — otherwise a workout deleted
+on one phone would come back from the other on the next sync, forever.
+
+Two devices editing *the same day* between syncs is the one case that loses
+something: the later edit stands and the earlier is gone. The alternative is
+asking you to pick between two versions of Tuesday while you are trying to
+lift, which is worse.
+
+**Sync now** and the time of the last sync are at the bottom of Home.
 
 ## Training with friends
 
@@ -194,9 +220,7 @@ on a new device and signing in gets you the same row, not a duplicate. The
 name on the board is separate from your handle — be `alex_99` to the server
 and `Alex` to your friends.
 
-Logging in on a new phone puts you back on the board; it does not bring your
-history with you, because your log is still only on the phone that wrote it.
-Use **Restore** for that.
+Signing in on a new phone brings both: your place on the board, and your log.
 
 **Whoever starts the crew** can remove anyone from the board. Removing alone
 does not stop them rejoining, since they still hold the join link — so the
@@ -223,8 +247,10 @@ from the bottom of Home whenever you want another look. Loading it never
 touches a day you have really trained.
 
 To empty the app completely — pages, splits, stars and tracked days —
-**Start fresh** at the bottom of Home asks once and then erases everything on
-the device. There is no undo, so export first if any of it mattered.
+**Start fresh** at the bottom of Home asks once and then erases everything.
+Because your log syncs, that means every device signed in to your account,
+not just the one in your hand. There is no undo, so export first if any of it
+mattered.
 
 ## Putting it on your phone
 
@@ -258,9 +284,8 @@ No charts, no estimated 1RM, no rest timer, no plate calculator, no streaks.
 Each of those is a real feature, and each one is a reason to look at your
 phone for longer between sets.
 
-**Your log does not sync yet.** The account is the front door and the board
-identity; making the log itself follow you across devices is the next piece
-of work. Until then, **Save as JSON** and **Restore** are the way across.
+**No conflict resolution.** Two devices editing the same day between syncs
+means the later edit wins. You are never asked to merge anything by hand.
 
 ## Known limits
 

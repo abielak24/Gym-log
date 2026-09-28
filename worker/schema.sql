@@ -55,3 +55,19 @@ CREATE TABLE IF NOT EXISTS members (
 
 CREATE INDEX IF NOT EXISTS members_by_crew ON members (crew_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS members_by_name ON members (crew_id, name_key);
+
+-- Everybody's log, one row per record, so two devices merge instead of
+-- overwriting each other. `deleted` rows are tombstones: they carry no body
+-- and exist so a workout deleted on one phone does not come back from the
+-- other.
+CREATE TABLE IF NOT EXISTS log (
+  account_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL,
+  PRIMARY KEY (account_id, kind, id)
+);
+
+CREATE INDEX IF NOT EXISTS log_by_account ON log (account_id, updated_at);

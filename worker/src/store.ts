@@ -43,6 +43,15 @@ export interface MemberRow {
   updatedAt: number;
 }
 
+/** One piece of somebody's log, as it travels. */
+export interface LogRecord {
+  kind: string;
+  id: string;
+  updatedAt: number;
+  deleted: boolean;
+  body: string;
+}
+
 /** How many failed attempts a handle has made lately. */
 export interface AttemptRow {
   handleKey: string;
@@ -69,6 +78,12 @@ export interface Store {
   /** A value the server keeps to itself, made once and reused. */
   getSetting(key: string): Promise<string | null>;
   putSetting(key: string, value: string): Promise<void>;
+
+  /** Records changed since a moment, oldest first, at most `limit` of them. */
+  logSince(accountId: string, since: number, limit: number): Promise<LogRecord[]>;
+  /** Upserts, but only where the arriving record is the newer one. */
+  putLog(accountId: string, records: LogRecord[]): Promise<void>;
+  countLog(accountId: string): Promise<number>;
 
   createCrew(row: CrewRow, now: number): Promise<void>;
   getCrew(id: string): Promise<CrewRow | null>;
@@ -171,6 +186,41 @@ export function d1Store(db: D1Database): Store {
 
     async putSetting(key, value) {
       await db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').bind(key, value).run();
+    },
+
+    async logSince(accountId, since, limit) {
+      const result = await db.prepare(
+        `SELECT kind, id, updated_at, deleted, body FROM log
+         WHERE account_id = ? AND updated_at > ?
+         ORDER BY updated_at ASC LIMIT ?`,
+      ).bind(accountId, since, limit).all();
+
+      return (result.results ?? []).map((row) => ({
+        kind: row.kind as string,
+        id: row.id as string,
+        updatedAt: Number(row.updated_at),
+        deleted: Number(row.deleted) === 1,
+        body: (row.body as string) ?? '',
+      }));
+    },
+
+    async putLog(accountId, records) {
+      for (const record of records) {
+        // The WHERE on the update is the merge rule, in the one place both
+        // devices go through: an older write never lands on a newer one.
+        await db.prepare(
+          `INSERT INTO log (account_id, kind, id, updated_at, deleted, body)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (account_id, kind, id) DO UPDATE SET
+             updated_at = excluded.updated_at, deleted = excluded.deleted, body = excluded.body
+           WHERE excluded.updated_at > log.updated_at`,
+        ).bind(accountId, record.kind, record.id, record.updatedAt, record.deleted ? 1 : 0, record.body).run();
+      }
+    },
+
+    async countLog(accountId) {
+      const row = await db.prepare('SELECT COUNT(*) AS n FROM log WHERE account_id = ?').bind(accountId).first();
+      return Number(row?.n ?? 0);
     },
 
     async createCrew(row, now) {

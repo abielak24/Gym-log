@@ -16,6 +16,7 @@ import { createSampleDaily, createSamples } from '../core/sample';
 import { buildTemplates } from '../core/templates';
 import { entriesFor, pruneLog, seedFor, type DailyEntry, type DailyLog } from '../core/daily';
 import type { BoardMember } from './crew';
+import { adopt, stampKey, type RecordKind, type Syncable } from '../core/sync';
 import { retitle, writeCell } from '../core/edit';
 import { normalizeName } from '../core/normalize';
 
@@ -46,6 +47,14 @@ interface Stored {
   board: { members: BoardMember[]; fetchedAt: number } | null;
   /** The last summary posted, so an unchanged one is not posted again. */
   lastPosted: string;
+  /** `kind:id` to when it last changed here, for the merge. */
+  touched: Record<string, number>;
+  /** `kind:id` to when it was deleted here. */
+  tombstones: Record<string, number>;
+  /** The server's clock at the last successful pull. */
+  syncedAt: number;
+  /** Which account this log belongs to, so two never merge by accident. */
+  syncScope: string;
 }
 
 export interface Account {
@@ -82,6 +91,10 @@ const EMPTY: Stored = {
   hiddenFromCrew: [],
   board: null,
   lastPosted: '',
+  touched: {},
+  tombstones: {},
+  syncedAt: 0,
+  syncScope: '',
 };
 
 let state: Stored = EMPTY;
@@ -125,6 +138,71 @@ function persist(): void {
 
 function emit(): void {
   for (const listener of listeners) listener();
+}
+
+/**
+ * Note that a record changed here, so a merge can order it.
+ *
+ * A session carries its own `updatedAt`; everything else - a starred lift, a
+ * tracked day, a renamed split - has nowhere of its own to record when it
+ * changed, so it is recorded here.
+ */
+function stamp(kind: RecordKind, id: string, at = Date.now()): void {
+  const key = stampKey(kind, id);
+  const tombstones = { ...state.tombstones };
+  delete tombstones[key];
+  state = { ...state, touched: { ...state.touched, [key]: at }, tombstones };
+}
+
+/** Note that a record was deleted here, which has to outlive the record. */
+function bury(kind: RecordKind, id: string, at = Date.now()): void {
+  const key = stampKey(kind, id);
+  const touched = { ...state.touched };
+  delete touched[key];
+  state = { ...state, touched, tombstones: { ...state.tombstones, [key]: at } };
+}
+
+/** What the sync layer reads and writes. */
+export function syncable(): Syncable {
+  return {
+    sessions: state.sessions,
+    daily: state.daily,
+    overrides: state.overrides,
+    starred: state.starred,
+    hiddenFromCrew: state.hiddenFromCrew,
+    touched: state.touched,
+    tombstones: state.tombstones,
+  };
+}
+
+export function applySyncable(next: Syncable): void {
+  state = {
+    ...state,
+    sessions: next.sessions,
+    daily: next.daily,
+    overrides: next.overrides,
+    starred: next.starred,
+    hiddenFromCrew: next.hiddenFromCrew,
+    touched: next.touched,
+    tombstones: next.tombstones,
+  };
+  history = null;
+  templates = null;
+  persist();
+  emit();
+}
+
+export function syncedAt(): number {
+  return state.syncedAt;
+}
+
+export function syncScope(): string {
+  return state.syncScope;
+}
+
+export function markSynced(at: number, scope: string): void {
+  state = { ...state, syncedAt: at, syncScope: scope };
+  persist();
 }
 
 export function subscribe(listener: () => void): () => void {
@@ -208,6 +286,7 @@ export function saveOverride(key: string, patch: Partial<TemplateOverride>): voi
     ...state,
     overrides: [...state.overrides.filter((o) => o.key !== key), merged],
   };
+  stamp('override', key);
   persist();
   emit();
 }
@@ -295,6 +374,7 @@ export function toggleHiddenFromCrew(key: string): void {
     ? state.hiddenFromCrew.filter((k) => k !== key)
     : [...state.hiddenFromCrew, key];
   state = { ...state, hiddenFromCrew: hidden, lastPosted: '' };
+  if (hidden.includes(key)) stamp('hidden', key); else bury('hidden', key);
   persist();
   emit();
 }
@@ -347,6 +427,8 @@ export function saveDaily(date: string, entries: DailyEntry[]): void {
     // Once a sample day is written over, it is the user's day.
     sampleDaily: state.sampleDaily.filter((day) => day !== date),
   };
+  // `pruneLog` drops a day whose rows are all empty, which is a delete.
+  if (state.daily[date]) stamp('daily', date); else bury('daily', date);
   persist();
   emit();
 }
@@ -364,6 +446,7 @@ export function toggleStar(key: string): void {
     ? state.starred.filter((k) => k !== key)
     : [...state.starred, key];
   state = { ...state, starred };
+  if (starred.includes(key)) stamp('starred', key); else bury('starred', key);
   persist();
   emit();
 }
@@ -433,6 +516,7 @@ export function saveText(id: string, text: string, date: string | null): void {
 
 export function deleteSession(id: string): void {
   state = { ...state, sessions: state.sessions.filter((s) => s.id !== id) };
+  bury('session', id);
   persist();
   emit();
 }
@@ -467,8 +551,19 @@ export function clearSamples(): void {
   emit();
 }
 
+/**
+ * Restoring from a backup file.
+ *
+ * Everything in it counts as changed now, so a restore travels to the other
+ * devices rather than sitting here looking older than what they hold.
+ */
 export function replaceAll(sessions: Session[], daily?: DailyLog): void {
+  const before = state.sessions;
   state = { ...state, sessions, samplesCleared: true, daily: daily ?? state.daily };
+  for (const session of before) {
+    if (!session.sample && !sessions.some((s) => s.id === session.id)) bury('session', session.id);
+  }
+  state = { ...state, ...adopt(syncable(), Date.now()) };
   persist();
   emit();
 }
@@ -486,7 +581,11 @@ export function pruneEmpty(keepId?: string): void {
     return page.exercises.length > 0 || page.flagged.length > 0 || page.notes.length > 0;
   });
   if (kept.length === state.sessions.length) return;
+  const gone = state.sessions.filter((s) => !kept.includes(s));
   state = { ...state, sessions: kept };
+  // A page opened and never written on was still created with a timestamp,
+  // so it can already be on the server. Without a tombstone it comes back.
+  for (const session of gone) bury('session', session.id);
   persist();
 }
 
@@ -498,9 +597,27 @@ export function pruneEmpty(keepId?: string): void {
  * samples are one tap away for anyone who wants them back.
  */
 export function clearEverything(): void {
+  // Tombstones for everything that was here, so "erase" means erased rather
+  // than erased-until-the-next-sync-puts-it-back. It does mean this reaches
+  // every device signed in to the account, which the button says.
+  const now = Date.now();
+  const tombstones = { ...state.tombstones };
+  for (const session of state.sessions) if (!session.sample) tombstones[stampKey('session', session.id)] = now;
+  for (const date of Object.keys(state.daily)) tombstones[stampKey('daily', date)] = now;
+  for (const override of state.overrides) tombstones[stampKey('override', override.key)] = now;
+  for (const key of state.starred) tombstones[stampKey('starred', key)] = now;
+  for (const key of state.hiddenFromCrew) tombstones[stampKey('hidden', key)] = now;
+
   // Not the account. Erasing the log is not signing out, and being thrown
   // back to a login screen for it would read as something having gone wrong.
-  state = { ...EMPTY, samplesCleared: true, account: state.account };
+  state = {
+    ...EMPTY,
+    samplesCleared: true,
+    account: state.account,
+    tombstones,
+    syncedAt: state.syncedAt,
+    syncScope: state.syncScope,
+  };
   persist();
   emit();
 }

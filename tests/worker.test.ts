@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, type Deps } from '../worker/src/handler';
-import { nameKey, type AccountRow, type AttemptRow, type CrewRow, type MemberRow, type SessionRow, type Store } from '../worker/src/store';
+import { nameKey, type AccountRow, type AttemptRow, type CrewRow, type LogRecord, type MemberRow, type SessionRow, type Store } from '../worker/src/store';
 
 /** An in-memory Store, so every rule can be tested with nothing deployed. */
 function memoryStore(): Store {
@@ -8,6 +8,7 @@ function memoryStore(): Store {
   const sessions = new Map<string, SessionRow>();
   const attempts = new Map<string, AttemptRow>();
   const settings = new Map<string, string>();
+  const log = new Map<string, Map<string, LogRecord>>();
   const crews = new Map<string, CrewRow>();
   const members = new Map<string, Map<string, MemberRow>>();
 
@@ -55,6 +56,26 @@ function memoryStore(): Store {
     async putSetting(key, value) {
       // Mirrors INSERT OR IGNORE: the first value written is the one kept.
       if (!settings.has(key)) settings.set(key, value);
+    },
+
+    async logSince(accountId, since, limit) {
+      return [...(log.get(accountId)?.values() ?? [])]
+        .filter((row) => row.updatedAt > since)
+        .sort((a, b) => a.updatedAt - b.updatedAt)
+        .slice(0, limit);
+    },
+    async putLog(accountId, records) {
+      const mine = log.get(accountId) ?? new Map<string, LogRecord>();
+      for (const record of records) {
+        const key = `${record.kind}:${record.id}`;
+        const before = mine.get(key);
+        // Mirrors the SQL: an older write never lands on a newer one.
+        if (!before || record.updatedAt > before.updatedAt) mine.set(key, record);
+      }
+      log.set(accountId, mine);
+    },
+    async countLog(accountId) {
+      return log.get(accountId)?.size ?? 0;
     },
 
     async createCrew(row) {
@@ -484,6 +505,104 @@ describe('whoever started the crew', () => {
     const { crewId, secret, alex } = await crewWithBoth();
     const board = await call('GET', `/crew/${crewId}`, { secret });
     expect((await board.json() as { ownerAccountId: string }).ownerAccountId).toBe(alex.accountId);
+  });
+});
+
+describe('the log', () => {
+  function record(id: string, updatedAt: number, body: unknown = { text: id }) {
+    return { kind: 'session', id, updatedAt, body };
+  }
+
+  async function push(token: string, records: unknown[]) {
+    return call('PUT', '/log', { token, body: { records } });
+  }
+
+  async function pull(token: string, since = 0) {
+    const response = await handle(
+      new Request(`${API}/log?since=${since}`, { headers: { 'x-account-token': token } }),
+      deps,
+    );
+    return { status: response.status, ...(await response.json() as { records: { id: string }[]; now: number; more: boolean; cursor: number }) };
+  }
+
+  it('needs an account', async () => {
+    expect((await call('PUT', '/log', { body: { records: [] } })).status).toBe(401);
+    expect((await handle(new Request(`${API}/log`), deps)).status).toBe(401);
+  });
+
+  it('comes back to the phone that sent it', async () => {
+    const { token } = await signUp('alex');
+    await push(token, [record('mon', 100)]);
+    expect((await pull(token)).records.map((r) => r.id)).toEqual(['mon']);
+  });
+
+  // The whole point: two devices, one account, one log.
+  it('reaches a second device signed in to the same account', async () => {
+    const alex = await signUp('alex', 'k');
+    const second = await call('POST', '/session', { body: { handle: 'alex', key: 'k' } });
+    const laptop = (await second.json() as { token: string }).token;
+
+    await push(alex.token, [record('mon', 100)]);
+    expect((await pull(laptop)).records.map((r) => r.id)).toEqual(['mon']);
+  });
+
+  it('and never reaches anybody else', async () => {
+    const alex = await signUp('alex');
+    const sam = await signUp('sam');
+
+    await push(alex.token, [record('mon', 100)]);
+    expect((await pull(sam.token)).records).toEqual([]);
+  });
+
+  it('only hands back what changed since last time', async () => {
+    const { token } = await signUp('alex');
+    await push(token, [record('mon', 100), record('tue', 300)]);
+    expect((await pull(token, 200)).records.map((r) => r.id)).toEqual(['tue']);
+  });
+
+  it('keeps the newer of two versions, whichever arrives second', async () => {
+    const { token } = await signUp('alex');
+    await push(token, [record('mon', 300, { text: 'newer' })]);
+    await push(token, [record('mon', 100, { text: 'older' })]);
+
+    const pulled = await pull(token) as unknown as { records: { body: { text: string } }[] };
+    expect(pulled.records[0].body.text).toBe('newer');
+  });
+
+  it('carries a deletion as a tombstone with no body', async () => {
+    const { token } = await signUp('alex');
+    await push(token, [record('mon', 100)]);
+    await push(token, [{ kind: 'session', id: 'mon', updatedAt: 200, deleted: true }]);
+
+    const pulled = await pull(token);
+    expect(pulled.records).toEqual([{ kind: 'session', id: 'mon', updatedAt: 200, deleted: true }]);
+  });
+
+  it('hands back a cursor that does not skip a full page', async () => {
+    const { token } = await signUp('alex');
+    const many = Array.from({ length: 450 }, (_, index) => record(`s${index}`, index + 1));
+    await push(token, many.slice(0, 400));
+    await push(token, many.slice(400));
+
+    const first = await pull(token);
+    expect(first.more).toBe(true);
+    expect(first.records).toHaveLength(400);
+
+    const second = await pull(token, first.cursor);
+    expect(second.records).toHaveLength(50);
+    expect(second.more).toBe(false);
+  });
+
+  it('refuses a record with no time on it, rather than guessing one', async () => {
+    const { token } = await signUp('alex');
+    const response = await push(token, [{ kind: 'session', id: 'mon' }]);
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses more than it was built for', async () => {
+    const { token } = await signUp('alex');
+    const tooMany = Array.from({ length: 401 }, (_, index) => record(`s${index}`, index + 1));
+    expect((await push(token, tooMany)).status).toBe(413);
   });
 });
 

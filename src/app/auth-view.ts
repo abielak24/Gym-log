@@ -7,7 +7,7 @@
  * and has to be written down.
  */
 
-import { foldCode, logIn, recover, signUp } from './auth';
+import { foldCode, logIn, recover, remember, signUp, type Identity } from './auth';
 import { isConfigured } from './crew';
 import { toast } from './panels';
 import * as store from './store';
@@ -62,8 +62,8 @@ export function renderAuth(root: HTMLElement): void {
       form('Create account', ['handle', 'password', 'confirm'], async (values) => {
         if (values.password !== values.confirm) throw new Error('those two passwords are not the same');
         if (values.password.length < 8) throw new Error('a password of at least 8 characters');
-        const code = await signUp(values.handle, values.password);
-        showRecoveryCode(root, code);
+        const made = await signUp(values.handle, values.password);
+        showRecoveryCode(root, made.code, made.identity);
       }),
       link('I already have an account', showLogIn),
     );
@@ -92,7 +92,7 @@ export function renderAuth(root: HTMLElement): void {
         if (values.password.length < 8) throw new Error('a password of at least 8 characters');
         if (foldCode(values.code).length < 10) throw new Error('that does not look like a recovery code');
         const next = await recover(values.handle, values.code, values.password);
-        showRecoveryCode(root, next);
+        showRecoveryCode(root, next.code, next.identity);
       }),
       link('Back to signing in', showLogIn),
     );
@@ -108,9 +108,11 @@ export function renderAuth(root: HTMLElement): void {
  *
  * It is derived into a key before it is sent, so the server cannot read it
  * back to anybody — which is exactly why this screen will not let itself be
- * skipped with a tap in the wrong place.
+ * skipped with a tap in the wrong place. Nothing is signed in until the tick
+ * at the bottom: being signed in redraws the app over the top of this, and
+ * this is the only time the code exists anywhere.
  */
-function showRecoveryCode(root: HTMLElement, code: string): void {
+function showRecoveryCode(root: HTMLElement, code: string, identity: Identity): void {
   root.replaceChildren();
 
   const heading = document.createElement('h1');
@@ -154,7 +156,12 @@ function showRecoveryCode(root: HTMLElement, code: string): void {
   box.addEventListener('change', () => {
     go.disabled = !box.checked;
   });
-  go.addEventListener('click', done);
+  go.addEventListener('click', () => {
+    // Only now. Storing the session makes the app consider itself signed in,
+    // which redraws the screen this code is written on.
+    remember(identity);
+    done();
+  });
   root.append(go);
 }
 

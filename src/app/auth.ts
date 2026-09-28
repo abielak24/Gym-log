@@ -102,7 +102,15 @@ async function saltFor(handle: string): Promise<string> {
   return body.salt;
 }
 
-function remember(identity: Identity): void {
+/**
+ * Hold on to a session.
+ *
+ * Sign-up and recovery deliberately do not call this: storing the session is
+ * what makes the app consider itself signed in, which redraws the screen -
+ * and doing that while the recovery code is on show would wipe the only copy
+ * of it before it could be written down.
+ */
+export function remember(identity: Identity): void {
   store.setAccount({
     id: identity.accountId,
     handle: identity.handle,
@@ -118,20 +126,19 @@ function remember(identity: Identity): void {
  * so nobody — including whoever runs the server — can recover an account on
  * somebody's behalf. That is the trade for having no email address.
  */
-export async function signUp(handle: string, password: string): Promise<string> {
+export async function signUp(handle: string, password: string): Promise<{ code: string; identity: Identity }> {
   const salt = randomHex();
-  const recoveryCode = newRecoveryCode();
+  const code = newRecoveryCode();
 
   const identity = await send('/account', {
     handle,
     displayName: handle,
     salt,
     key: await deriveKey(password, salt),
-    recovery: await deriveKey(foldCode(recoveryCode), salt),
+    recovery: await deriveKey(foldCode(code), salt),
   }) as Identity;
 
-  remember(identity);
-  return recoveryCode;
+  return { code, identity };
 }
 
 export async function logIn(handle: string, password: string): Promise<void> {
@@ -141,7 +148,9 @@ export async function logIn(handle: string, password: string): Promise<void> {
 }
 
 /** Back in with the code from sign-up, which also replaces it. */
-export async function recover(handle: string, code: string, password: string): Promise<string> {
+export async function recover(
+  handle: string, code: string, password: string,
+): Promise<{ code: string; identity: Identity }> {
   const oldSalt = await saltFor(handle);
   const salt = randomHex();
   const nextCode = newRecoveryCode();
@@ -154,8 +163,7 @@ export async function recover(handle: string, code: string, password: string): P
     nextRecovery: await deriveKey(foldCode(nextCode), salt),
   }) as Identity;
 
-  remember(identity);
-  return nextCode;
+  return { code: nextCode, identity };
 }
 
 export async function logOut(): Promise<void> {

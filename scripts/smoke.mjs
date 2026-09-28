@@ -38,6 +38,7 @@ const TYPES = {
  */
 const accounts = new Map();   // handleKey -> { id, handle, displayName, salt, key, recovery }
 const tokens = new Map();     // token -> accountId
+const log = new Map();        // accountId -> Map of "kind:id" -> record
 const crews = new Map();
 const members = new Map();
 let nextId = 0;
@@ -121,6 +122,32 @@ async function crewApi(request, response, path) {
     const me = whoami();
     if (!me) return send(401, { error: 'not signed in' });
     return send(200, { accountId: me.id, handle: me.handle, displayName: me.displayName });
+  }
+
+  /* The log -------------------------------------------------------------- */
+
+  if (path === '/api/log') {
+    const me = whoami();
+    if (!me) return send(401, { error: 'not signed in' });
+
+    const mine = log.get(me.id) ?? new Map();
+    log.set(me.id, mine);
+
+    if (request.method === 'PUT') {
+      for (const record of JSON.parse(body).records ?? []) {
+        const key = `${record.kind}:${record.id}`;
+        const before = mine.get(key);
+        // Mirrors the worker: an older write never lands on a newer one.
+        if (!before || record.updatedAt > before.updatedAt) mine.set(key, record);
+      }
+      return send(200, { ok: true, now: Date.now() });
+    }
+
+    if (request.method === 'GET') {
+      const since = Number(new URL(request.url, 'http://x').searchParams.get('since') ?? 0);
+      const records = [...mine.values()].filter((r) => r.updatedAt > since).sort((a, b) => a.updatedAt - b.updatedAt);
+      return send(200, { now: Date.now(), more: false, cursor: Date.now(), records });
+    }
   }
 
   /* Crews ---------------------------------------------------------------- */
@@ -828,7 +855,11 @@ check('showing who is already on that board', (await theirs.locator('.board-name
 await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
 await theirs.waitForSelector('.board-list');
-check('joining shows the board', (await theirs.locator('.board-name').count()) === 2);
+// The list element appears holding "Loading the board…", so waiting on it
+// is not waiting for the board. Wait for the rows.
+await theirs.waitForFunction(() => document.querySelectorAll('.board-name').length === 2, null, { timeout: 15000 })
+  .catch(() => {});
+check('joining shows the board', (await theirs.locator('.board-name').count()) === 2, (await theirs.locator('.board-name').allTextContents()).join(' | '));
 
 await theirs.goto(`${url}#/home`);
 await theirs.waitForSelector('input[aria-label="New split"]');
@@ -953,7 +984,7 @@ check('signing in on a second device lands in the same crew', laptop.url().inclu
 await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
 await laptop.waitForSelector('.board-list');
-check('and updates that account\u2019s row rather than making a second', (await laptop.locator('.board-name').count()) === 2);
+check('and updates that account\u2019s row rather than making a second', (await laptop.locator('.board-name').count()) === 2, (await laptop.locator('.board-name').allTextContents()).join(' | '));
 check('which it knows is its own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
 
 const wrongCtx = await phone();
@@ -964,6 +995,95 @@ await wrong.waitForSelector('.toast', { timeout: 30000 });
 check('a wrong password gets nowhere near the board', (await wrong.locator('.board-list').count()) === 0);
 check('and says so without saying whether the handle exists', (await wrong.locator('.toast').textContent())?.includes('do not match'));
 await wrongCtx.close();
+
+// --- One account, two devices, one log -----------------------------------------------------
+const firstCtx = await phone();
+const first = await firstCtx.newPage();
+first.on('pageerror', (error) => check('no page errors while syncing', false, error.message));
+await first.goto(url);
+await makeAccount(first, 'syncer');
+await first.waitForSelector('.split-list');
+
+// Something real to sync: the samples deliberately do not travel.
+await first.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+await first.waitForSelector('.grid');
+await first.locator('.btn-primary', { hasText: 'Log today' }).click();
+await first.waitForSelector('.grid-cell-today');
+const firstCell = first.locator('textarea.grid-cell-today').first();
+await firstCell.click();
+await first.keyboard.type('185x5\n185x5\n185x4');
+await first.waitForTimeout(900);
+// Today's column is a textarea, so its contents are a value and never turn
+// up in the grid's text. Reading the wrong one passes on an empty cell.
+check('the workout is written on the first device', (await firstCell.inputValue()).includes('185x5'));
+
+await first.goto(`${url}#/home`);
+await first.waitForSelector('.account-box');
+await first.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+await first.waitForSelector('.toast');
+check('a log can be pushed to the account', (await first.locator('.toast').textContent())?.includes('Synced'), await first.locator('.toast').textContent());
+
+const secondCtx = await phone();
+const second = await secondCtx.newPage();
+second.on('pageerror', (error) => check('no page errors on the second device', false, error.message));
+await second.goto(url);
+await signInAs(second, 'syncer');
+await second.waitForSelector('.split-list', { timeout: 30000 });
+await second.waitForTimeout(2500);
+await second.goto(`${url}#/home`);
+await second.waitForSelector('.split-list');
+
+const carried = await second.locator('.split-name').allTextContents();
+check('signing in on a second device brings the log with it', carried.includes('Chest/Tris'), carried.join(', '));
+
+await second.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+await second.waitForSelector('.grid');
+check('including what was written on the last workout', (await second.locator('textarea.grid-cell-today').first().inputValue()).includes('185x5'));
+check('and not the demo data, which stays where it was made', (await second.locator('.grid').textContent())?.includes('95x7') === false);
+await second.screenshot({ path: join(SHOTS, '21-second-device.png'), fullPage: true });
+
+// A change on the second device goes the other way.
+await second.goto(`${url}#/home`);
+await second.waitForSelector('.split-list');
+await second.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+await second.waitForSelector('.grid-cell-today');
+const secondCell = second.locator('textarea.grid-cell-today').first();
+await secondCell.click();
+await second.keyboard.press('End');
+await second.keyboard.type('\n185x3');
+await second.waitForTimeout(900);
+await second.goto(`${url}#/home`);
+await second.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+await second.waitForSelector('.toast');
+
+await first.goto(`${url}#/home`);
+await first.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+await first.waitForTimeout(1200);
+await first.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+await first.waitForSelector('.grid');
+check('and an edit there comes back the other way', (await first.locator('textarea.grid-cell-today').first().inputValue()).includes('185x3'));
+
+// Deleting has to travel too, or the other device puts it straight back.
+await first.waitForSelector('.session-actions');
+await first.locator('.btn', { hasText: 'Delete this workout' }).click();
+await first.locator('.session-actions .btn-danger-on').click();
+await first.waitForTimeout(600);
+await first.goto(`${url}#/home`);
+await first.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+await first.waitForTimeout(1200);
+
+await second.goto(`${url}#/home`);
+await second.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+await second.waitForTimeout(1500);
+await second.reload();
+// An empty log renders no split list at all, so wait on something Home
+// always has rather than on the thing being asserted away.
+await second.waitForSelector('.account-box');
+const left = await second.locator('.split-name').allTextContents();
+check('a deleted workout does not come back from the other device', left.includes('Chest/Tris') === false, left.join(', '));
+
+await firstCtx.close();
+await secondCtx.close();
 
 // --- The recovery code -------------------------------------------------------------------
 const lostCtx = await phone();
@@ -982,6 +1102,7 @@ await lost.locator('.btn-primary', { hasText: 'Set a new password' }).click();
 await lost.waitForSelector('.recovery-code', { timeout: 30000 });
 const nextCode = (await lost.locator('.recovery-code').textContent())?.trim();
 check('and using it hands over a fresh code', Boolean(nextCode) && nextCode !== recoveryCode);
+check('which stays put rather than being redrawn away', (await lost.locator('.recovery-code').count()) === 1);
 
 await lost.locator('.confirm-saved input').check();
 await lost.locator('.btn-primary', { hasText: 'Continue' }).click();

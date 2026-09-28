@@ -78,6 +78,40 @@ is the client. The rules that matter:
 - **`clearEverything()` does not sign you out.** Erasing the log is not
   signing out, and landing on a login screen for it reads as a failure.
 
+## Sync
+
+`src/core/sync.ts` is the merge, with no network in it; `src/app/sync.ts` is
+the loop around it. The rules that could lose a workout are all in the first
+one and are covered by `tests/sync.test.ts`.
+
+- **Records, never a blob.** Each session, tracked day, override, star and
+  held-back lift travels on its own, and `merge` takes the newer of a pair.
+  Sending the whole log would mean the last device to sync erased the other.
+- **Deleting is a record.** Without tombstones, a workout deleted on one
+  phone returns from the other on the next sync, forever. `bury()` in the
+  store writes one; `clearEverything()` writes one for everything, which is
+  why the button now says it reaches every device.
+- **`merge` returns the state it was given when nothing applied.** Every
+  pull hands back the records the device itself just pushed, so "records
+  arrived" is not "something changed" — treating it as such redrew Home on
+  every sync.
+- **Samples never sync.** They are scaffolding; a real phone must not
+  receive somebody's demo history. Conversely, a device that pulls a real
+  log clears its own samples, or it ends up with two Chest days.
+- **The cursor is the server's clock**, handed back by each pull, so two
+  phones with different clocks still agree on what "since" means. Ordering
+  within a record is still the writing phone's clock — that is the accepted
+  last-write-wins cost, documented in the README.
+- **The first sync of an account adopts what is already here.** A log
+  written before signing in has no stamps, so `collect` would find nothing.
+  `adopt()` stamps it all.
+- **Nothing waits on the network.** Sync is debounced, best-effort, and
+  silent on failure, exactly like the crew post. `syncBeforeLeaving` runs on
+  `pagehide` and `visibilitychange`.
+- **Sign-up and recovery do not sign you in.** Storing the session makes the
+  router redraw the app, which wiped the recovery code off the screen before
+  it could be written down. `remember()` is called by the Continue button.
+
 ## The crew
 
 `worker/` is a Cloudflare Worker with a D1 database, and `src/app/crew.ts` is
@@ -101,10 +135,8 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   flag; `230` alone is a flag saying it looks like a weight missing its reps.
 - **Not in scope:** charts, estimated 1RM, rest timers, plate calculators,
   streaks. Each is a reason to look at a phone for longer between sets.
-- **Accounts are the front door, and hold nothing.** Signing in decides who
-  you are on a board; the log is still only on the device. Log sync is the
-  next piece of work and is not built — do not write anything that implies
-  it is.
+- **Accounts are the front door.** Signing in decides who you are on a board
+  and which log arrives. Charts, 1RM and the rest stay out regardless.
 - **Supersets** parse from `|` into separate tracked columns, but are shown
   as text. The parsing is deliberate — the format must not be lossy — and the
   two-column display is deliberately deferred.

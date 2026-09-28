@@ -17,6 +17,14 @@ import { nameKey, type AccountRow, type Store } from './store';
 const MAX_MEMBERS = 30;
 /** A summary is a few kB; anything far past that is not one. */
 const MAX_SUMMARY_BYTES = 64 * 1024;
+/** Records handed back in one pull. More than this and the app asks again. */
+const LOG_PAGE = 400;
+/** Records accepted in one push, and the size of the whole body. */
+const MAX_PUSH = 400;
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+/** A log nobody could have written by training. */
+const MAX_RECORDS = 20_000;
+
 /** Wrong passwords allowed for one handle before it goes quiet. */
 const MAX_ATTEMPTS = 10;
 /** How long that lasts. */
@@ -52,6 +60,9 @@ export async function handle(request: Request, deps: Deps): Promise<Response> {
     if (request.method === 'POST' && path === '/session') return await logIn(request, deps);
     if (request.method === 'DELETE' && path === '/session') return await logOut(request, deps);
     if (request.method === 'GET' && path === '/me') return await whoAmI(request, deps);
+
+    if (request.method === 'GET' && path === '/log') return await pullLog(request, deps, url);
+    if (request.method === 'PUT' && path === '/log') return await pushLog(request, deps);
 
     if (request.method === 'POST' && path === '/crew') return await createCrew(request, deps);
 
@@ -252,6 +263,89 @@ async function countAttempt(deps: Deps, handleKey: string): Promise<void> {
     count: fresh ? 1 : row.count + 1,
     windowStart: fresh ? deps.now() : row.windowStart,
   });
+}
+
+/* The log ------------------------------------------------------------------- */
+
+/**
+ * What has changed since the phone last looked.
+ *
+ * `now` comes back with it and is what the phone stores as its next
+ * starting point, so the cursor is always the server's clock rather than a
+ * phone's. `more` says the page was full and there is another behind it.
+ */
+async function pullLog(request: Request, deps: Deps, url: URL): Promise<Response> {
+  const account = await requireAccount(request, deps);
+  if (account instanceof Response) return account;
+
+  const since = Number(url.searchParams.get('since') ?? 0);
+  if (!Number.isFinite(since) || since < 0) return json({ error: 'since must be a number' }, 400);
+
+  const records = await deps.store.logSince(account.id, since, LOG_PAGE + 1);
+  const more = records.length > LOG_PAGE;
+  const page = more ? records.slice(0, LOG_PAGE) : records;
+
+  return json({
+    now: deps.now(),
+    more,
+    // With a full page, the next request carries on from the last record
+    // rather than from now, or everything past it would be skipped.
+    cursor: more ? page[page.length - 1].updatedAt : deps.now(),
+    records: page.map((record) => ({
+      kind: record.kind,
+      id: record.id,
+      updatedAt: record.updatedAt,
+      ...(record.deleted ? { deleted: true } : { body: safeParse(record.body) }),
+    })),
+  });
+}
+
+async function pushLog(request: Request, deps: Deps): Promise<Response> {
+  const account = await requireAccount(request, deps);
+  if (account instanceof Response) return account;
+
+  const raw = await request.text();
+  if (raw.length > MAX_LOG_BYTES) return json({ error: 'too much at once' }, 413);
+
+  let parsed: { records?: unknown };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return json({ error: 'expected records' }, 400);
+  }
+
+  const incoming = Array.isArray(parsed.records) ? parsed.records : null;
+  if (!incoming) return json({ error: 'expected records' }, 400);
+  if (incoming.length > MAX_PUSH) return json({ error: 'too many records at once' }, 413);
+
+  const records = [];
+  for (const entry of incoming) {
+    const record = entry as { kind?: unknown; id?: unknown; updatedAt?: unknown; deleted?: unknown; body?: unknown };
+    const kind = text(record.kind);
+    const id = text(record.id);
+    const updatedAt = Number(record.updatedAt);
+    if (!kind || !id || !Number.isFinite(updatedAt) || updatedAt <= 0) {
+      return json({ error: 'a record needs a kind, an id and a time' }, 400);
+    }
+    records.push({
+      kind: kind.slice(0, 32),
+      id: id.slice(0, 128),
+      updatedAt,
+      deleted: record.deleted === true,
+      // A tombstone carries nothing, which is most of why they stay cheap.
+      body: record.deleted === true ? '' : JSON.stringify(record.body ?? null),
+    });
+  }
+
+  // Only worth counting when the push could grow the log past the cap.
+  if (records.some((record) => !record.deleted)) {
+    if ((await deps.store.countLog(account.id)) + records.length > MAX_RECORDS) {
+      return json({ error: 'that is more log than this was built for' }, 413);
+    }
+  }
+
+  await deps.store.putLog(account.id, records);
+  return json({ ok: true, now: deps.now() });
 }
 
 /* Crews --------------------------------------------------------------------- */

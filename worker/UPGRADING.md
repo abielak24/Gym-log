@@ -51,8 +51,9 @@ Copy it from
 SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;
 ```
 
-You want six: **accounts**, **attempts**, **crews**, **members**,
-**sessions**, **settings**.
+You want seven: **accounts**, **attempts**, **crews**, **log**, **members**,
+**sessions**, **settings**. **log** is where your workouts live once they
+sync; the rest are accounts and boards.
 
 ---
 
@@ -96,5 +97,17 @@ sign in to.
 7. Back on your own screen, **Refresh**. There should be a **Remove** control
    next to their row, because you own the crew.
 
+Then the part worth testing properly — the log following you:
+
+8. On your phone, log a real set into a split, then go to Home and tap
+   **Sync now** at the bottom. It should say *Synced*.
+9. Open the app somewhere else (another browser, a laptop, a private window)
+   and **sign in** with the same handle and password. Your splits and that
+   set should arrive on their own within a few seconds, and the demo data
+   should not be there.
+10. Change something on that second device, wait a moment, then tap **Sync
+    now** on the phone. The change should appear.
+
 If **Create an account** fails, the worker cannot reach the database — that
-is job 1 or the `DB` binding, not the code.
+is job 1 or the `DB` binding, not the code. If accounts work but nothing
+syncs, the **log** table is missing: re-run `schema.sql`.

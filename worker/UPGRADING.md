@@ -130,7 +130,22 @@ again.
 
 ### 2.6 Check the new code is actually live
 
-Open the app, then open your browser's console and run:
+The quickest check needs no console, and tests the thing you care about
+anyway. In the app's Friends tab: **Leave crew**, **Start a crew**, copy the
+link, open it in a private window and join under a different name and
+passcode. Back on your own screen, **Refresh**.
+
+- **A Remove control next to their row** — the new code is live. The admin
+  token only exists in the new code, so no old worker can produce one.
+- **No Remove control** — the old code is still running. The paste or the
+  deploy did not take; go back to 2.2.
+- **Starting a crew fails outright** — job 1 did not finish. The new code is
+  writing a column the database does not have yet.
+
+If you would rather check the wire directly, this goes in **your browser's
+developer console** — Chrome or Edge, `F12` (`⌥⌘J` on a Mac), **Console**
+tab; Safari needs Settings → Advanced → "Show features for web developers"
+turned on first. It is JavaScript, and will not run anywhere else:
 
 ```js
 fetch('https://gym-log-crew.abielak24.workers.dev/crew', { method: 'OPTIONS' })
@@ -138,8 +153,12 @@ fetch('https://gym-log-crew.abielak24.workers.dev/crew', { method: 'OPTIONS' })
 ```
 
 It should print a list containing **x-member-passcode** and
-**x-admin-token**. If those two are missing, the old code is still running —
-the paste or the deploy did not take, so go back to 2.2.
+**x-admin-token**.
+
+> **Not the D1 console.** The SQL box in job 1 understands SQL and nothing
+> else; a line of JavaScript pasted there comes back as
+> `near "fetch": syntax error at offset 0: SQLITE_ERROR`. Harmless — a
+> statement that fails there changes nothing — but it is not the check.
 
 ---
 

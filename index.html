@@ -22,6 +22,91 @@
       </nav>
     </header>
     <main id="view"></main>
+
+    <!--
+      A blank screen says nothing, and this app runs on a phone nobody can
+      attach a debugger to. If the script fails to load or throws on the way
+      up, say so here, and offer the one repair that fixes the common cause:
+      a service worker pinning an old build whose files are no longer served.
+      Deliberately inline, dependency-free and before the module, so it works
+      in exactly the situation where nothing else does.
+    -->
+    <script>
+      (function () {
+        var shown = false;
+        function report(what) {
+          if (shown) return;
+          shown = true;
+          var view = document.getElementById('view');
+          if (!view) return;
+          view.innerHTML = '';
+
+          var box = document.createElement('div');
+          box.style.cssText = 'padding:24px 16px;font:15px/1.5 -apple-system,system-ui,sans-serif;color:#e8eaed';
+
+          var title = document.createElement('h1');
+          title.textContent = 'The app did not start';
+          title.style.cssText = 'font-size:20px;margin:0 0 12px';
+
+          var why = document.createElement('p');
+          why.textContent = 'Usually this phone is holding an old copy that no longer matches the site.';
+          why.style.cssText = 'margin:0 0 16px;color:#9aa0a6';
+
+          var fix = document.createElement('button');
+          fix.textContent = 'Clear the stored copy and reload';
+          fix.style.cssText = 'display:block;width:100%;padding:14px;margin:0 0 20px;border:0;'
+            + 'border-radius:12px;background:#3b82f6;color:#fff;font-size:16px';
+          fix.onclick = function () {
+            fix.textContent = 'Clearing\u2026';
+            var done = function () { location.reload(); };
+            var jobs = [];
+            if (window.caches && caches.keys) {
+              jobs.push(caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (key) { return caches.delete(key); }));
+              }));
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (reg) { return reg.unregister(); }));
+              }));
+            }
+            // Your log is in localStorage and is not touched by any of this.
+            Promise.all(jobs).then(done, done);
+          };
+
+          var detail = document.createElement('p');
+          detail.textContent = what;
+          detail.style.cssText = 'margin:0;font:12px/1.5 ui-monospace,Menlo,monospace;color:#9aa0a6;'
+            + 'word-break:break-word';
+
+          box.appendChild(title);
+          box.appendChild(why);
+          box.appendChild(fix);
+          box.appendChild(detail);
+          view.appendChild(box);
+        }
+
+        // Capture, so a <script> that fails to load is caught too.
+        window.addEventListener('error', function (event) {
+          if (event.target && event.target !== window && event.target.src) {
+            report('Could not load ' + event.target.src);
+          } else {
+            report(event.message || 'Script error');
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          report('Unhandled rejection: ' + ((event.reason && event.reason.message) || event.reason));
+        });
+
+        // And the silent case: no error, but nothing ever rendered.
+        setTimeout(function () {
+          var view = document.getElementById('view');
+          if (view && view.childNodes.length === 0) report('The app script never ran.');
+        }, 6000);
+      })();
+    </script>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

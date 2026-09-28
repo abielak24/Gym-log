@@ -36,7 +36,12 @@ self.addEventListener('install', (event) => {
     caches
       .open(CACHE)
       .then((cache) => cache.addAll(ASSETS.map((path) => new URL(path, self.location).href)))
-      .then(() => self.skipWaiting()),
+      .then(() => self.skipWaiting())
+      // addAll is all-or-nothing, but caches.open has already made the cache.
+      // Leaving a half-filled one behind under this version's name means the
+      // next install finds it, believes it, and serves a page whose script is
+      // not in it - which is a blank screen with no way back.
+      .catch((error) => caches.delete(CACHE).then(() => { throw error; })),
   );
 });
 
@@ -55,8 +60,22 @@ self.addEventListener('fetch', (event) => {
 
   // Any route renders from the one page; hash routing does the rest.
   if (request.mode === 'navigate') {
+    const page = new URL('index.html', self.location).href;
     event.respondWith(
-      caches.match(new URL('index.html', self.location).href).then((hit) => hit || fetch(request)),
+      caches.match(page).then((hit) => {
+        // Serve the copy at once - opening in a basement is the whole point -
+        // and fetch a fresh one behind it, so the next open is current even if
+        // the update dance does not happen for some reason.
+        if (hit) {
+          event.waitUntil(
+            fetch(request)
+              .then((fresh) => (fresh.ok ? caches.open(CACHE).then((cache) => cache.put(page, fresh)) : null))
+              .catch(() => null),
+          );
+          return hit;
+        }
+        return fetch(request);
+      }),
     );
     return;
   }

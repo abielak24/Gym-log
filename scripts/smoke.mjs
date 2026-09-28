@@ -1130,6 +1130,49 @@ check('a deleted workout does not come back from the other device', left.include
 await firstCtx.close();
 await secondCtx.close();
 
+// --- When the app cannot start at all ------------------------------------------------------
+// A phone holding a stale service worker gets a page whose script is gone,
+// and a blank screen says nothing to somebody who cannot open a console.
+const brokenCtx = await phone();
+const broken = await brokenCtx.newPage();
+await broken.goto(url);
+await broken.waitForSelector('.auth-form, .split-list');
+
+await broken.evaluate(() => {
+  window.dispatchEvent(new ErrorEvent('error', { message: 'Could not load assets/index-old.js' }));
+});
+await broken.waitForTimeout(200);
+
+check('a failure to start says so rather than showing nothing', (await broken.locator('#view h1').textContent()) === 'The app did not start');
+check('and says what it was', (await broken.locator('#view p').last().textContent())?.includes('index-old.js'));
+check('and offers the repair that fixes it', (await broken.locator('#view button').count()) === 1);
+
+// The repair is the point: it has to actually let go of the stored copy.
+// It reloads when it is done, so the evidence goes in sessionStorage, which
+// survives that; a variable on window would not.
+await broken.evaluate(() => {
+  const realKeys = caches.keys.bind(caches);
+  caches.keys = () => realKeys().then((keys) => {
+    sessionStorage.setItem('cleared-caches', 'yes');
+    return keys;
+  });
+  navigator.serviceWorker.getRegistrations = () => {
+    sessionStorage.setItem('unregistered-workers', 'yes');
+    return Promise.resolve([]);
+  };
+});
+await broken.locator('#view button').click();
+await broken.waitForSelector('.auth-form, .split-list', { timeout: 20000 });
+
+const cleared = await broken.evaluate(() => [
+  sessionStorage.getItem('cleared-caches'),
+  sessionStorage.getItem('unregistered-workers'),
+]);
+check('which clears the cached app', cleared[0] === 'yes');
+check('and unregisters the worker holding it', cleared[1] === 'yes');
+check('and comes back to a working app', (await broken.locator('#view h1').textContent()) !== 'The app did not start');
+await brokenCtx.close();
+
 // --- The recovery code -------------------------------------------------------------------
 const lostCtx = await phone();
 const lost = await lostCtx.newPage();

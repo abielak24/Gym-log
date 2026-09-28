@@ -300,6 +300,41 @@ const makeAccount = async (pg, handle, password = 'correct-horse') => {
   return code;
 };
 
+/**
+ * Tap Sync now and wait for what it was supposed to bring.
+ *
+ * A fixed pause here passes on a fast machine and fails on a loaded CI
+ * runner, which is exactly what it did. Wait for the condition instead, and
+ * tap again if the first round crossed with the other device's push.
+ */
+const syncUntil = async (pg, settled, rounds = 4) => {
+  for (let round = 0; round < rounds; round += 1) {
+    await pg.goto(`${url}#/home`);
+    await pg.waitForSelector('.account-box');
+    await pg.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
+    await pg.waitForSelector('.toast', { timeout: 20000 }).catch(() => {});
+    // The check runs out here rather than in the page, so it is free to
+    // navigate to wherever the thing it is looking for actually lives.
+    if (await settled()) return true;
+  }
+  return false;
+};
+
+/**
+ * Wait for the board to actually have rows on it.
+ *
+ * `.board-list` appears first holding "Loading the board…", so waiting on
+ * the list is not waiting for the board, and counting rows before the fetch
+ * lands reads whatever happens to be there.
+ */
+const waitForRows = async (pg, count) => {
+  await pg.waitForFunction(
+    (want) => document.querySelectorAll('.board-name').length === want,
+    count,
+    { timeout: 20000 },
+  ).catch(() => {});
+};
+
 const signInAs = async (pg, handle, password = 'correct-horse') => {
   await pg.waitForSelector('.auth-form');
   if (await pg.locator('.btn-ghost', { hasText: 'I already have an account' }).count()) {
@@ -855,10 +890,7 @@ check('showing who is already on that board', (await theirs.locator('.board-name
 await theirs.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await theirs.locator('.btn-primary', { hasText: 'Join' }).click();
 await theirs.waitForSelector('.board-list');
-// The list element appears holding "Loading the board…", so waiting on it
-// is not waiting for the board. Wait for the rows.
-await theirs.waitForFunction(() => document.querySelectorAll('.board-name').length === 2, null, { timeout: 15000 })
-  .catch(() => {});
+await waitForRows(theirs, 2);
 check('joining shows the board', (await theirs.locator('.board-name').count()) === 2, (await theirs.locator('.board-name').allTextContents()).join(' | '));
 
 await theirs.goto(`${url}#/home`);
@@ -967,7 +999,7 @@ check('landing them on the board itself', theirs.url().endsWith('#/friends'));
 // Ask the server, not the copy cached from before they were removed.
 await theirs.waitForTimeout(800);
 await theirs.locator('.btn', { hasText: 'Refresh' }).click();
-await theirs.waitForTimeout(800);
+await waitForRows(theirs, 2);
 check('and the new link puts their row back on the board', (await theirs.locator('.board-name').count()) === 2);
 check('as their own row, not a second one', (await theirs.locator('.board-row:has-text("(you)") .board-name').textContent())?.startsWith('Sam'));
 
@@ -984,6 +1016,7 @@ check('signing in on a second device lands in the same crew', laptop.url().inclu
 await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
 await laptop.waitForSelector('.board-list');
+await waitForRows(laptop, 2);
 check('and updates that account\u2019s row rather than making a second', (await laptop.locator('.board-name').count()) === 2, (await laptop.locator('.board-name').allTextContents()).join(' | '));
 check('which it knows is its own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
 
@@ -1029,7 +1062,8 @@ second.on('pageerror', (error) => check('no page errors on the second device', f
 await second.goto(url);
 await signInAs(second, 'syncer');
 await second.waitForSelector('.split-list', { timeout: 30000 });
-await second.waitForTimeout(2500);
+await syncUntil(second, async () =>
+  (await second.locator('.split-name').allTextContents()).includes('Chest/Tris'));
 await second.goto(`${url}#/home`);
 await second.waitForSelector('.split-list');
 
@@ -1053,28 +1087,28 @@ await second.keyboard.press('End');
 await second.keyboard.type('\n185x3');
 await second.waitForTimeout(900);
 await second.goto(`${url}#/home`);
+await second.waitForSelector('.account-box');
 await second.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
-await second.waitForSelector('.toast');
+await second.waitForSelector('.toast', { timeout: 20000 });
 
-await first.goto(`${url}#/home`);
-await first.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
-await first.waitForTimeout(1200);
-await first.locator('.split-name', { hasText: 'Chest/Tris' }).click();
-await first.waitForSelector('.grid');
-check('and an edit there comes back the other way', (await first.locator('textarea.grid-cell-today').first().inputValue()).includes('185x3'));
+// The check navigates to the grid, so it also leaves us there.
+const cameBack = await syncUntil(first, async () => {
+  await first.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+  await first.waitForSelector('.grid');
+  return (await first.locator('textarea.grid-cell-today').first().inputValue()).includes('185x3');
+});
+check('and an edit there comes back the other way', cameBack);
 
 // Deleting has to travel too, or the other device puts it straight back.
 await first.waitForSelector('.session-actions');
 await first.locator('.btn', { hasText: 'Delete this workout' }).click();
 await first.locator('.session-actions .btn-danger-on').click();
 await first.waitForTimeout(600);
-await first.goto(`${url}#/home`);
-await first.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
-await first.waitForTimeout(1200);
+// Nothing to wait for on this side: the delete only has to reach the server.
+await syncUntil(first, async () => true, 1);
 
-await second.goto(`${url}#/home`);
-await second.locator('.account-actions .btn', { hasText: 'Sync now' }).click();
-await second.waitForTimeout(1500);
+await syncUntil(second, async () =>
+  !(await second.locator('.split-name').allTextContents()).includes('Chest/Tris'));
 await second.reload();
 // An empty log renders no split list at all, so wait on something Home
 // always has rather than on the thing being asserted away.

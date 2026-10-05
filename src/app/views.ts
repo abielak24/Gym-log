@@ -93,8 +93,9 @@ export function renderExercise(root: HTMLElement, key: string): void {
   const best = heaviestSet(entries);
   const summary = document.createElement('p');
   summary.className = 'exercise-summary';
-  summary.textContent = best
-    ? `${entries.length} session${entries.length === 1 ? '' : 's'} · heaviest ${best.weight}x${best.reps}, ${friendlyDate(best.date)}`
+  const heaviest = best && `${best.weight}x${best.reps}${best.note ? ` (${best.note})` : ''}`;
+  summary.textContent = heaviest
+    ? `${entries.length} session${entries.length === 1 ? '' : 's'} · heaviest ${heaviest}, ${friendlyDate(best!.date)}`
     : `${entries.length} session${entries.length === 1 ? '' : 's'}`;
   root.append(summary);
 

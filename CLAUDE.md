@@ -140,6 +140,15 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
 - **Supersets** parse from `|` into separate tracked columns, but are shown
   as text. The parsing is deliberate — the format must not be lossy — and the
   two-column display is deliberately deferred.
+- **A tracked row is named and then given a goal**, in that order, before it
+  exists. The row used to arrive with both boxes empty, which made the goal
+  optional in practice — and a number with nothing to aim at can be neither
+  met nor missed, so the row said nothing. The goal is not validated, only
+  read back as it is typed: an unreadable one is kept as written and simply
+  measures nothing, which is the same bargain the parser makes.
+- **A set's comment rides on the set**, not the exercise. `185x8 (w/ bands)`
+  is a different lift from `185x8`, so `heaviestSet` carries the note and the
+  summary shows it. `//` is for something about the exercise instead.
 - **A day with no tracker rows was not tracked** — it is never a zero.
   `pruneLog` drops days whose rows are all empty, so opening a day and
   leaving it does not mark it.
@@ -269,7 +278,7 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
 | `10` | a set at bodyweight: 10 reps |
 | `Rows \| Cable Rows` | a superset: an exercise naming both sides |
 | `25x10 \| 20x10` | its sets, a column per side |
-| `95x7 (felt heavy)` | a set with a note |
+| `135x10 (w/ bands)` | a set with a comment, kept on that set |
 | `// slept badly` | a note, ignored by history |
 
 `src/core/sample.ts` holds the demo history — five sessions of each split

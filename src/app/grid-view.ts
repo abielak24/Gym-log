@@ -95,7 +95,8 @@ export function renderTemplate(root: HTMLElement, key: string, editing?: string)
 function noteHint(): HTMLElement {
   const hint = document.createElement('p');
   hint.className = 'note';
-  hint.textContent = 'Start a line with // to write a note instead of a set \u2014 it is kept with the exercise and left out of your history.';
+  hint.textContent = 'Put a comment in brackets after a set \u2014 135x10 (w/ bands) \u2014 and it stays with that set. '
+    + 'Start a whole line with // for a note about the exercise instead.';
   return hint;
 }
 

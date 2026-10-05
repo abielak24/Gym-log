@@ -62,6 +62,11 @@ history, and a new day arrives pre-filled with yesterday's goals and empty
 values — one number per row to fill in. A day you never touch stays
 untracked rather than becoming a row of zeroes.
 
+**Adding one takes two steps:** name the thing, then set its goal. It reads
+the goal back as you type it — `3l` becomes "3 l a day" — and will not add
+the row until there is one, because a tracked number with nothing to aim at
+can be neither met nor missed.
+
 **The calendar** fills itself in: a day is marked because a page was written
 for it, not because anything was scheduled. Tap a day you trained to open it
 for editing; tap an empty one to add a workout you forgot to write down. The
@@ -102,7 +107,7 @@ follows, written down:
 | `50x10` under `Dips` | whatever you wrote — added weight, assistance, your call |
 | `Rows \| Cable Rows` | a superset: an exercise naming both sides |
 | `25x10 \| 20x10` | its sets: a column per side, split by the same pipe |
-| `95x7 (felt heavy)` | a set with a note attached |
+| `135x10 (w/ bands)` | a set with a comment attached to that set |
 | `// slept badly` | a note, ignored by history |
 | `@ Steps 7.5k/10k` | a daily tracker row — only ever written by the export |
 
@@ -117,8 +122,24 @@ as a placeholder. And in the text page, they appear in grey under the cursor.
 Names are matched loosely, so `DB Incline Press` and `Dumbbell Incline Press`
 are one exercise with one history.
 
-**You can write things that aren't sets.** Start a line with `//` and it is
-kept with that exercise and left out of your history:
+**You can comment a single set.** Put it in brackets after the numbers and it
+stays attached to that set, through the grid, the history and the export:
+
+```
+Squat
+45x10 (w/ bands)
+135x10 (w/ bands)
+135x10
+185x8
+```
+
+Those are still four sets of squats at 45, 135, 135 and 185 — nothing about
+the comment stops them counting. Your best set shows its comment too, because
+`185x8 (w/ bands)` is not the same lift as `185x8`. Without the brackets,
+`45x10 w/ bands` is flagged rather than guessed at.
+
+**You can also write things that aren't sets at all.** Start a line with `//`
+and it is kept with that exercise and left out of your history:
 
 ```
 95x7

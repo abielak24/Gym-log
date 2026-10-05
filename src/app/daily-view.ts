@@ -10,9 +10,10 @@
  * stays untracked rather than becoming a row of zeroes.
  */
 
-import { makeEntry, metGoal, progress, summarise, type DailyEntry } from '../core/daily';
+import { makeEntry, metGoal, parseAmount, progress, summarise, type DailyEntry } from '../core/daily';
 import { isoToday } from '../core/serialize';
-import { friendlyDate } from './format';
+import { friendlyDate, thousands } from './format';
+import { toast } from './panels';
 import * as store from './store';
 
 const SAVE_DELAY = 400;
@@ -76,35 +77,117 @@ export function dailySection(date: string): HTMLElement {
   redraw();
   section.append(list);
 
-  const form = document.createElement('form');
-  form.className = 'add-exercise';
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'search';
-  input.placeholder = 'Track something daily';
-  input.autocapitalize = 'words';
-  input.setAttribute('aria-label', 'Add something to track daily');
-
-  const add = document.createElement('button');
-  add.type = 'submit';
-  add.className = 'btn btn-ghost';
-  add.textContent = 'Add';
-  add.setAttribute('aria-label', 'Add daily tracker row');
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const name = input.value.trim();
-    if (!name) return;
-    rows.push(makeEntry(name));
-    input.value = '';
+  section.append(addRow((name, goal) => {
+    rows.push(makeEntry(name, goal));
     save();
     redraw();
+  }));
+  return section;
+}
+
+/**
+ * Adding something to track, in two steps: what, then what you are aiming at.
+ *
+ * A row used to arrive with both boxes empty and the goal typed in afterwards
+ * if at all, which made a goal optional in practice - and a tracked row with
+ * no goal cannot be met or missed, so it is a number with nothing to say
+ * about it. Asking for the goal before the row exists is what makes it part
+ * of deciding to track the thing.
+ */
+function addRow(onAdd: (name: string, goal: string) => void): HTMLElement {
+  const wrap = document.createElement('div');
+
+  const form = document.createElement('form');
+  form.className = 'add-exercise';
+  wrap.append(form);
+
+  const hint = document.createElement('p');
+  hint.className = 'note';
+
+  const field = (placeholder: string, label: string) => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'search';
+    input.placeholder = placeholder;
+    input.autocapitalize = 'words';
+    input.setAttribute('aria-label', label);
+    return input;
+  };
+
+  const button = (text: string, kind: string) => {
+    const element = document.createElement('button');
+    element.type = kind === 'submit' ? 'submit' : 'button';
+    element.className = kind === 'submit' ? 'btn btn-primary' : 'btn btn-ghost';
+    element.textContent = text;
+    return element;
+  };
+
+  let step: ((event: Event) => void) | null = null;
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    step?.(event);
   });
 
-  form.append(input, add);
-  section.append(form);
-  return section;
+  const askName = () => {
+    hint.remove();
+    const name = field('Track something daily', 'Add something to track daily');
+    const next = button('Next', 'submit');
+    next.setAttribute('aria-label', 'Name what to track');
+    form.replaceChildren(name, next);
+
+    step = () => {
+      const chosen = name.value.trim();
+      if (!chosen) {
+        toast('What do you want to count? Pushups, cardio, steps.');
+        return;
+      }
+      askGoal(chosen);
+    };
+  };
+
+  const askGoal = (name: string) => {
+    const goal = field(`Daily goal for ${name}`, `Daily goal for ${name}`);
+    goal.autocapitalize = 'none';
+    const add = button('Add', 'submit');
+    add.setAttribute('aria-label', `Start tracking ${name}`);
+    const back = button('Back', 'ghost');
+    back.setAttribute('aria-label', 'Change what to track');
+    back.addEventListener('click', askName);
+
+    form.replaceChildren(goal, add, back);
+    wrap.append(hint);
+    goal.focus();
+
+    // Said as it is typed, because an unreadable goal is not refused - it is
+    // kept as written, and there is simply nothing to measure against it.
+    const describe = () => {
+      const text = goal.value.trim();
+      if (!text) {
+        hint.textContent = `How much ${name} counts as a day done? Numbers like 100, 30min, 1h, 10k, 5mi.`;
+        return;
+      }
+      const amount = parseAmount(text);
+      hint.textContent = amount
+        ? `Read as ${thousands(amount.amount)}${amount.unit ? ` ${amount.unit}` : ''} a day.`
+        : `“${text}” is kept as written, but nothing can be measured against it.`;
+    };
+
+    describe();
+    goal.addEventListener('input', describe);
+
+    step = () => {
+      const wanted = goal.value.trim();
+      if (!wanted) {
+        toast(`A daily goal for ${name} \u2014 it is what makes the day met or missed.`);
+        return;
+      }
+      onAdd(name, wanted);
+      askName();
+    };
+  };
+
+  askName();
+  return wrap;
 }
 
 function dailyRow(row: DailyEntry, onRemove: () => void, onEdit: () => void): HTMLLIElement {

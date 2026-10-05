@@ -88,14 +88,18 @@ export function suggestNames(history: History, partial: string, limit = 5): stri
 }
 
 /** The heaviest single set ever recorded for an exercise. */
-export function heaviestSet(entries: HistoryEntry[]): { weight: number; reps: number; date: string } | null {
-  let best: { weight: number; reps: number; date: string } | null = null;
+export function heaviestSet(
+  entries: HistoryEntry[],
+): { weight: number; reps: number; date: string; note?: string } | null {
+  let best: { weight: number; reps: number; date: string; note?: string } | null = null;
   for (const entry of entries) {
     for (const set of entry.block.sets) {
       for (const column of set.columns ?? []) {
         if (column.weight === null) continue;
         if (!best || column.weight > best.weight || (column.weight === best.weight && column.reps > best.reps)) {
-          best = { weight: column.weight, reps: column.reps, date: entry.date };
+          // The note comes with it. `185x8 (w/ bands)` is a different lift
+          // from `185x8`, and a best set that hides that is a lie by omission.
+          best = { weight: column.weight, reps: column.reps, date: entry.date, note: column.note };
         }
       }
     }

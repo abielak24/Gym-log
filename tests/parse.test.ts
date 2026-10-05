@@ -221,3 +221,44 @@ describe('a header written either way round', () => {
     expect(page.date).toBeNull();
   });
 });
+
+describe('a comment in brackets after a set', () => {
+  it('is kept with the set, not read as a broken one', () => {
+    const result = parseSetLine('45x10 (w/ bands)');
+    expect(result).toEqual({ ok: true, columns: [{ weight: 45, reps: 10, note: 'w/ bands' }] });
+  });
+
+  it('works on a bodyweight set too', () => {
+    expect(parseSetLine('12 (slow)')).toEqual({ ok: true, columns: [{ weight: null, reps: 12, note: 'slow' }] });
+  });
+
+  it('is per side on a superset', () => {
+    expect(parseSetLine('25x10 (left) | 20x10 (right)')).toEqual({
+      ok: true,
+      columns: [
+        { weight: 25, reps: 10, note: 'left' },
+        { weight: 20, reps: 10, note: 'right' },
+      ],
+    });
+  });
+
+  it('survives slashes and punctuation, which a note about bands has', () => {
+    const result = parseSetLine('135x10 (w/ bands, 2" deficit)');
+    expect(result.ok && result.columns[0].note).toBe('w/ bands, 2" deficit');
+  });
+
+  // The whole page, exactly as somebody would write it.
+  it('lets some sets carry one and others not', () => {
+    const page = parsePage('10/5 Legs\nSquat\n45x10 (w/ bands)\n135x10 (w/ bands)\n135x10\n185x8');
+    const squat = page.exercises[0];
+
+    expect(page.flagged).toHaveLength(0);
+    expect(squat.sets.map((set) => set.columns?.[0].note)).toEqual(['w/ bands', 'w/ bands', undefined, undefined]);
+    expect(squat.sets.map((set) => set.columns?.[0].weight)).toEqual([45, 135, 135, 185]);
+  });
+
+  // Without the brackets it is still a flag, which is the point of them.
+  it('is not the same as writing the comment loose', () => {
+    expect(parseSetLine('45x10 w/ bands').ok).toBe(false);
+  });
+});

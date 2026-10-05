@@ -579,15 +579,31 @@ check('removing it from a split keeps its history', (await page.locator('.histor
 await page.goto(`${url}#/cal`);
 await page.waitForSelector('.cal');
 check('the month draws six weeks', (await page.locator('.cal-day').count()) === 42);
-const trained = await page.locator('.cal-trained').count();
-check('a month of training is filled in from the pages', trained >= 10, `${trained} days`);
+// The samples cover three weeks, which straddles a month boundary for most
+// of any month - so count across this month and last, or this check passes
+// or fails on the date it happens to be run.
+const trainedThisMonth = await page.locator('.cal-trained').count();
+await page.locator('.cal-head .btn-icon').first().click();
+await page.waitForSelector('.cal');
+const trainedLastMonth = await page.locator('.cal-trained').count();
+await page.goto(`${url}#/cal`);
+await page.waitForSelector('.cal');
+
+const trained = trainedThisMonth + trainedLastMonth;
+check('a month of training is filled in from the pages', trained >= 10, `${trainedThisMonth} + ${trainedLastMonth} days`);
 check('and say which split it was', (await page.locator('.cal-split').first().textContent())?.length > 0);
 check('today is marked', (await page.locator('.cal-today').count()) === 1);
 check('days that have not happened are not tappable', (await page.locator('.cal-day:disabled').count()) > 0);
 await page.screenshot({ path: join(SHOTS, '7-calendar.png'), fullPage: true });
 
 // --- Finishing a session that was left half written ------------------------------------
+// A day holding both a workout and a tracker asks which you meant, so going
+// straight for `.grid` works only on the days that happen to be unambiguous.
 await page.locator('.cal-trained').first().click();
+await page.waitForSelector('.grid, .cal-panel');
+if (await page.locator('.cal-panel').count()) {
+  await page.locator('.cal-panel .btn-chip').first().click();
+}
 await page.waitForSelector('.grid');
 check('tapping a past day opens that session for editing', (await page.locator('.split-when').textContent())?.startsWith('editing'));
 
@@ -712,6 +728,48 @@ await page.reload();
 await page.waitForSelector('.daily-row');
 check('the tracker is saved without a save button', (await page.locator('input[aria-label="Steps today"]').inputValue()) === '7.5k');
 check('and the headline counts the day', (await page.locator('.section-title').allTextContents()).some((s) => s.includes('2 of 3 met')));
+
+// --- Adding something to track asks what, then how much -------------------------------------
+const rowsBefore = await page.locator(".daily-row").count();
+check('adding something starts by asking what', (await page.locator('input[aria-label="Add something to track daily"]').count()) === 1);
+
+await page.locator('.btn-primary', { hasText: 'Next' }).click();
+await page.waitForTimeout(150);
+check('a nameless thing is not tracked', (await page.locator('.toast').last().textContent())?.includes('What do you want to count'));
+check('and no row appears for it', (await page.locator('.daily-row').count()) === rowsBefore);
+
+await page.locator('input[aria-label="Add something to track daily"]').fill('Water');
+await page.locator('.btn-primary', { hasText: 'Next' }).click();
+await page.waitForSelector('input[aria-label="Daily goal for Water"]');
+check('then asks what the goal is, before the row exists', (await page.locator('.daily-row').count()) === rowsBefore);
+check('saying what a goal can look like', (await page.locator('.daily .note').last().textContent())?.includes('30min'));
+
+await page.locator('.btn-primary', { hasText: 'Add' }).click();
+await page.waitForTimeout(150);
+check('and will not take a row with no goal', (await page.locator('.toast').last().textContent())?.includes('daily goal for Water'));
+check('still with no row added', (await page.locator('.daily-row').count()) === rowsBefore);
+
+await page.locator('input[aria-label="Daily goal for Water"]').fill('3l');
+await page.waitForTimeout(100);
+check('it reads the goal back as you type', (await page.locator('.daily .note').last().textContent())?.includes('3 l'));
+
+await page.locator('.btn', { hasText: 'Back' }).click();
+await page.waitForSelector('input[aria-label="Add something to track daily"]');
+check('and the first step can be gone back to', (await page.locator('input[aria-label="Daily goal for Water"]').count()) === 0);
+
+await page.locator('input[aria-label="Add something to track daily"]').fill('Water');
+await page.locator('.btn-primary', { hasText: 'Next' }).click();
+await page.locator('input[aria-label="Daily goal for Water"]').fill('3l');
+await page.locator('.btn-primary', { hasText: 'Add' }).click();
+await page.waitForTimeout(400);
+check('a named thing with a goal is tracked', (await page.locator('.daily-row').count()) === rowsBefore + 1);
+check('with the goal it was given', (await page.locator('input[aria-label="Water goal"]').inputValue()) === '3l');
+check('and the form back at the start for the next one', (await page.locator('input[aria-label="Add something to track daily"]').count()) === 1);
+
+await page.reload();
+await page.waitForSelector('.daily-row');
+check('and it survives a reload', (await page.locator('input[aria-label="Water goal"]').inputValue()) === '3l');
+await page.screenshot({ path: join(SHOTS, '11b-daily-add.png'), fullPage: true });
 
 // --- It reaches the calendar -------------------------------------------------------
 await page.goto(`${url}#/cal`);

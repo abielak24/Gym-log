@@ -1051,6 +1051,68 @@ await mine.goto(`${url}#/home`);
 await mine.waitForSelector('.split-list');
 check('and reading it leaves my own log alone', (await mine.locator('.split-name').allTextContents()).includes('Legs') === false);
 
+// --- And the other way round ---------------------------------------------------------------
+// Reported from a real board: one person could read the other's log and not
+// the reverse, which one direction of testing would never have caught. It
+// only proves anything if the person being read has actually logged
+// something, so Alex writes a set first.
+await mine.goto(`${url}#/home`);
+await mine.waitForSelector('.split-list');
+await mine.locator('.split-name', { hasText: 'Chest/Tris' }).click();
+await mine.waitForSelector('.grid');
+if (await mine.locator('.btn-primary', { hasText: 'Log today' }).count()) {
+  await mine.locator('.btn-primary', { hasText: 'Log today' }).click();
+}
+await mine.waitForSelector('textarea.grid-cell-today');
+const alexCell = mine.locator('textarea.grid-cell-today').first();
+await alexCell.click();
+await mine.keyboard.type('155x5\n155x5');
+await mine.waitForTimeout(900);
+await syncUntil(mine, async () => true, 1);
+
+await theirs.goto(`${url}#/friends`);
+await theirs.waitForSelector('.board-list');
+await waitForRows(theirs, 2);
+await theirs.locator('.board-row', { hasText: 'Alex' }).locator('.board-open').click();
+await theirs.waitForSelector('.history-list, .note', { timeout: 20000 });
+await theirs.waitForFunction(() => document.querySelectorAll('.history-list li').length > 0, null, { timeout: 20000 })
+  .catch(() => {});
+
+const theirView = (await theirs.locator('#view').textContent()) ?? '';
+check('whoever joined can read the log of whoever started it', theirView.includes('Could not reach') === false, theirView.slice(0, 160));
+check('and sees their workouts', (await theirs.locator('.history-list li').count()) > 0, theirView.slice(0, 160));
+check('with the sets they wrote', (await theirs.locator('.history-sets').first().textContent())?.includes('155x5'));
+
+// --- A failure says which failure it was ---------------------------------------------------
+// The first version of this said "you are back online" whatever had gone
+// wrong, so a board refusing the request looked exactly like a tunnel.
+const outsiderCtx = await phone();
+const outsider = await outsiderCtx.newPage();
+await outsider.goto(url);
+await makeAccount(outsider, 'outsider');
+await outsider.evaluate((crew) => {
+  const key = 'gym-notebook:v1';
+  const state = JSON.parse(localStorage.getItem(key));
+  // Holding the link without ever joining: exactly what the board refuses.
+  state.crew = { id: crew.id, secret: crew.secret, name: 'Outsider' };
+  state.board = { members: [{ memberId: crew.target, name: 'Alex', updatedAt: Date.now(), summary: null }], fetchedAt: Date.now() };
+  localStorage.setItem(key, JSON.stringify(state));
+}, await mine.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem('gym-notebook:v1'));
+  return { id: state.crew.id, secret: state.crew.secret, target: state.account.id };
+}));
+
+const alexAccount = await mine.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).account.id);
+// A goto that only changes the hash does not reload, so the injected crew
+// would never reach the running store.
+await outsider.goto(`${url}#/friend/${alexAccount}`);
+await outsider.reload();
+await outsider.waitForSelector('.banner-warn', { timeout: 20000 });
+check('somebody not on the board is told that, not told they are offline',
+  (await outsider.locator('.banner-warn').textContent())?.includes('not on this board'));
+check('and is offered another go', (await outsider.locator('.btn', { hasText: 'Try again' }).count()) === 1);
+await outsiderCtx.close();
+
 // --- No switch that promises a privacy it cannot keep --------------------------------------
 await theirs.goto(`${url}#/exercise/squat`);
 await theirs.waitForSelector('.exercise-head');

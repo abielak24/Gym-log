@@ -15,7 +15,7 @@ import { buildGrid, type GridCell } from '../core/grid';
 import { buildTemplates } from '../core/templates';
 import { parsePage } from '../core/parse';
 import type { Session, Template } from '../core/types';
-import { fetchMemberLog } from './crew';
+import { fetchMemberLog, type MemberLogProblem } from './crew';
 import { friendlyDate } from './format';
 import * as store from './store';
 
@@ -81,13 +81,57 @@ async function withLog(
   if (location.hash !== at) return;
 
   loading.remove();
-  if (result === 'failed') {
-    root.append(note('Could not reach their log. It will load when you are back online.'));
+  if (!Array.isArray(result)) {
+    root.append(problem(result, root, memberId, draw));
     return;
   }
 
   cached.set(memberId, result);
   draw(result);
+}
+
+/** What went wrong, in words, and what to do about it. */
+function problem(
+  reason: MemberLogProblem,
+  root: HTMLElement,
+  memberId: string,
+  draw: (sessions: Session[]) => void,
+): HTMLElement {
+  const wrap = document.createElement('div');
+
+  const said: Record<MemberLogProblem, string> = {
+    offline: 'Could not reach the server. Their log will load when you are back online.',
+    'signed-out': 'This device has been signed out. Sign in again to read their log.',
+    'not-allowed': 'You are not on this board yet, so their log is not open to you. '
+      + 'It takes a moment after joining — try again.',
+    gone: 'They are not on this board any more, so their log is no longer shared here.',
+    'stale-link': 'This crew’s link has changed. Ask whoever started it for the current one.',
+    'not-deployed': 'The server has not been updated to share logs yet. '
+      + 'Whoever runs it needs to redeploy the worker.',
+  };
+
+  const bar = document.createElement('div');
+  bar.className = reason === 'offline' ? 'banner banner-nudge' : 'banner banner-warn';
+  const text = document.createElement('span');
+  text.textContent = said[reason];
+  bar.append(text);
+  wrap.append(bar);
+
+  // Everything but a stale link is worth another go without leaving.
+  if (reason !== 'stale-link') {
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.className = 'btn btn-ghost';
+    again.textContent = 'Try again';
+    again.addEventListener('click', () => {
+      cached.delete(memberId);
+      wrap.remove();
+      void withLog(root, memberId, draw);
+    });
+    wrap.append(again);
+  }
+
+  return wrap;
 }
 
 export function renderFriend(root: HTMLElement, memberId: string): void {

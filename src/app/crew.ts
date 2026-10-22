@@ -234,9 +234,33 @@ export async function peekBoard(
  * Read-only by construction: there is no route that writes to another
  * account, so nothing a viewer does here can reach the person's phone.
  */
-export async function fetchMemberLog(memberId: string): Promise<Session[] | 'failed'> {
+export type MemberLog = Session[] | MemberLogProblem;
+
+/**
+ * Why a log could not be read.
+ *
+ * These used to be one word, 'failed', shown as "you are back online" — so a
+ * board that was refusing the request looked exactly like a train tunnel,
+ * and neither the person holding the phone nor anybody they asked could tell
+ * which. Each of these has a different thing to do about it.
+ */
+export type MemberLogProblem =
+  /** The request never landed: no signal, or the worker is down. */
+  | 'offline'
+  /** Signed in, but not a member of this board. */
+  | 'not-allowed'
+  /** No such member here any more: they left, or were removed. */
+  | 'gone'
+  /** The link no longer opens this crew. */
+  | 'stale-link'
+  /** This device's session has expired. */
+  | 'signed-out'
+  /** The server does not know this route: it is running older code. */
+  | 'not-deployed';
+
+export async function fetchMemberLog(memberId: string): Promise<MemberLog> {
   const crew = store.crew();
-  if (!crew || !isConfigured()) return 'failed';
+  if (!crew || !isConfigured()) return 'offline';
 
   const sessions = new Map<string, Session>();
   const gone = new Set<string>();
@@ -270,8 +294,18 @@ export async function fetchMemberLog(memberId: string): Promise<Session[] | 'fai
       cursor = body.cursor;
       if (!body.more) break;
     }
-  } catch {
-    return 'failed';
+  } catch (error) {
+    if (!(error instanceof ApiError)) return 'offline';
+    if (error.status === 401) return 'signed-out';
+    if (error.status === 403) return 'not-allowed';
+    // The crew route answers 404 for an unknown crew and for an unknown
+    // member; an older worker answers it for the route itself.
+    if (error.status === 404) {
+      if (error.message.includes('no such crew')) return 'stale-link';
+      if (error.message.includes('not found')) return 'not-deployed';
+      return 'gone';
+    }
+    return 'offline';
   }
 
   return [...sessions.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));

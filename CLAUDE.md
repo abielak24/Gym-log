@@ -158,6 +158,15 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   route that writes to another account, so read-only is structural rather
   than a matter of which buttons are rendered. `GET /crew/:id/member/:id/log`
   needs the crew secret *and* both accounts on that board.
+- **A failure to read a log says which failure it was.** `fetchMemberLog`
+  returns a typed reason — refused, no longer a member, stale link, signed
+  out, server not redeployed, or genuinely offline — because the first
+  version said "you are back online" for all six, and a board refusing a
+  request looked exactly like a train tunnel to the person holding the phone.
+- **Test both directions of anything between two people.** Reading a crew
+  mate's log was only ever tested one way round, and a real board reported it
+  working one way and not the other. The suite now reads in both directions,
+  with the person being read having actually logged something.
 - **Not a leaderboard** — no rank, no totals, rows sorted by name. Anything
   that turns the Friends tab back into a scoreboard is a regression.
 - **A set's comment rides on the set**, not the exercise. `185x8 (w/ bands)`

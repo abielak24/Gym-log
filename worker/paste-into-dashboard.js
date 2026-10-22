@@ -194,6 +194,10 @@ async function handle(request, deps) {
     if (request.method === "DELETE" && path === "/session") return await logOut(request, deps);
     if (request.method === "GET" && path === "/me") return await whoAmI(request, deps);
     if (request.method === "GET" && path === "/log") return await pullLog(request, deps, url);
+    const theirLog = /^\/crew\/([A-Za-z0-9_-]{1,64})\/member\/([A-Za-z0-9_-]{1,64})\/log$/.exec(path);
+    if (theirLog && request.method === "GET") {
+      return await pullMemberLog(request, deps, url, theirLog[1], theirLog[2]);
+    }
     if (request.method === "PUT" && path === "/log") return await pushLog(request, deps);
     if (request.method === "POST" && path === "/crew") return await createCrew(request, deps);
     const rotate = /^\/crew\/([A-Za-z0-9_-]{1,64})\/rotate$/.exec(path);
@@ -346,9 +350,23 @@ async function countAttempt(deps, handleKey) {
 async function pullLog(request, deps, url) {
   const account = await requireAccount(request, deps);
   if (account instanceof Response) return account;
+  return await pageOfLog(deps, account.id, url);
+}
+async function pullMemberLog(request, deps, url, crewId, memberId) {
+  const account = await requireAccount(request, deps);
+  if (account instanceof Response) return account;
+  const crew = await openCrew(request, deps, crewId);
+  if (crew instanceof Response) return crew;
+  const mine = await deps.store.getMember(crewId, account.id);
+  if (!mine) return json({ error: "you are not on this board" }, 403);
+  const theirs = await deps.store.getMember(crewId, memberId);
+  if (!theirs) return json({ error: "no such member" }, 404);
+  return await pageOfLog(deps, memberId, url);
+}
+async function pageOfLog(deps, accountId, url) {
   const since = Number(url.searchParams.get("since") ?? 0);
   if (!Number.isFinite(since) || since < 0) return json({ error: "since must be a number" }, 400);
-  const records = await deps.store.logSince(account.id, since, LOG_PAGE + 1);
+  const records = await deps.store.logSince(accountId, since, LOG_PAGE + 1);
   const more = records.length > LOG_PAGE;
   const page = more ? records.slice(0, LOG_PAGE) : records;
   return json({

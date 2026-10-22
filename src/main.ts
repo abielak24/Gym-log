@@ -13,6 +13,7 @@ import { renderEditSplit } from './app/edit-split';
 import { renderCalendar } from './app/calendar-view';
 import { flushDaily, renderDailyPage } from './app/daily-view';
 import { renderCrew, renderJoin } from './app/crew-view';
+import { forgetFriendLogs, renderFriend, renderFriendSplit } from './app/friend-view';
 import { parseJoinLink, postSummary } from './app/crew';
 import { signedIn } from './app/auth';
 import { startSyncing } from './app/sync';
@@ -64,8 +65,18 @@ function route(): void {
       renderDailyPage(view, decodeURIComponent(rest));
       break;
     case 'friends':
+      // Coming back to the list is the natural moment to stop trusting a
+      // copy of somebody's log that was fetched minutes ago.
+      forgetFriendLogs();
       renderCrew(view);
       break;
+    case 'friend': {
+      // #/friend/<member> is their log; a second part is one of their splits.
+      const [member, split] = rest.split('/');
+      if (split) renderFriendSplit(view, decodeURIComponent(member), decodeURIComponent(split));
+      else renderFriend(view, decodeURIComponent(member));
+      break;
+    }
     case 'join': {
       const invite = parseJoinLink(decodeURIComponent(rest));
       if (invite) renderJoin(view, invite.crewId, invite.secret);
@@ -85,7 +96,7 @@ function route(): void {
   // Everything that hangs off the home screen keeps the Home tab lit.
   const belongsToHome = ['home', 't', 'edit', 'summary', 'exercise', 'page', ''];
   const belongsToCalendar = ['cal', 'daily'];
-  const belongsToFriends = ['friends', 'join'];
+  const belongsToFriends = ['friends', 'join', 'friend'];
   for (const tab of tabs) {
     const target = tab.getAttribute('href')?.replace(/^#\/?/, '') || 'home';
     const on = target === screen

@@ -8,7 +8,8 @@
  *   95x7                   a set: weight x reps
  *   10                     a set at bodyweight: reps alone
  *   25x10 | 20x10          a superset: columns split by `|`
- *   // felt weak today     a note, ignored by history
+ *   95x7 (felt heavy)      a set with a comment on it
+ *   (felt weak today)      a note, ignored by history
  *
  * Nothing is guessed. A line that looks like a set but isn't quite one is
  * flagged with the reason rather than silently reinterpreted, because a
@@ -18,8 +19,32 @@
 import type { ExerciseBlock, LineInfo, Page, SetEntry } from './types';
 import { headingKey, normalizeName } from './normalize';
 
-const NOTE_PREFIX = /^(?:\/\/|#)\s?/;
-const WEIGHTED = /^(\d+(?:\.\d+)?)\s*(?:lbs?|kgs?)?\s*[xX×]\s*(\d+)\s*(?:\(([^)]*)\))?$/;
+/**
+ * A note: a whole line in brackets.
+ *
+ * The same brackets that comment a set, so there is one way to write a
+ * comment rather than two. It has to be a marker of some kind - a line with
+ * no digits is an exercise name, so unmarked prose would become an exercise
+ * and steal the sets written under it.
+ */
+const NOTE_LINE = /^\((.*)\)$/;
+
+/**
+ * What notes used to look like. Read, never written.
+ *
+ * Pages written before brackets still say `// shoulder felt tight`, and
+ * dropping this would turn every one of them into an exercise with a day's
+ * sets hanging off it.
+ */
+const LEGACY_NOTE = /^(?:\/\/|#)\s?/;
+/**
+ * A weight may be written any way a plate is: `45`, `47.5`, `2.5`, `.5`.
+ *
+ * The leading digit is optional because microplates get written `.5` as
+ * often as `0.5`, and a trailing point is a half-typed `47.5` rather than
+ * something to flag at somebody mid-set.
+ */
+const WEIGHTED = /^(\d+(?:\.\d*)?|\.\d+)\s*(?:lbs?|kgs?)?\s*[xX×]\s*(\d+)\s*(?:\(([^)]*)\))?$/;
 const BODYWEIGHT = /^(\d+)\s*(?:\(([^)]*)\))?$/;
 const DATE_AT_END = /(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s*$/;
 const DATE_AT_START = /^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)(?:\s+|$)/;
@@ -164,7 +189,7 @@ export function parsePage(text: string, today = new Date()): Page {
       return;
     }
 
-    if (NOTE_PREFIX.test(trimmed)) {
+    if (NOTE_LINE.test(trimmed) || LEGACY_NOTE.test(trimmed)) {
       const info: LineInfo = { index, kind: 'note', text: raw, exercise: current ? exercises.length - 1 : undefined };
       add(info);
       if (current) current.notes.push(info);

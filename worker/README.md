@@ -111,15 +111,32 @@ Then replace the worker's code from
 
 Everyone signs up again, and the first person to start a crew owns it.
 
+## Reading each other's logs
+
+`GET /crew/:crewId/member/:accountId/log` hands one member's log to another,
+and is the only route that serves an account's records to somebody else. It
+needs three things at once: a session token, the crew secret, and **both**
+accounts on that board. Holding the link is enough to see who is on a board;
+it is not enough to read anybody's log.
+
+There is no matching write. Nothing in this worker lets one account change
+another's records, so a reader is read-only by construction rather than by
+the app choosing not to draw an edit box.
+
+Leaving a board revokes it immediately: the check is on the member row, so
+the moment it is gone the log stops being served to that crew.
+
 ## What it stores
 
 Per account: a handle, a display name, a public salt, a hash of the derived
 key, a hash of the derived recovery code. No email, no password, no name.
 
 Per member of a board: the account it belongs to, a chosen display name, and
-the summary that phone posted — training frequency, this week's daily goals,
-and each lift with its best set. No pages, no notes, no session detail; those
-never leave the device.
+the summary that phone posted, which is now only used for "last logged".
+
+Per account: the log itself, one row per record — the pages, their sets and
+the comments on them. That is what syncs between your own devices, and what
+the people on your boards can read.
 
 ## What it does not do
 

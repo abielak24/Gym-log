@@ -148,7 +148,7 @@ describe('a comment typed into a cell', () => {
     const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '10', 'shoulder felt tight']));
 
     expect(page.exercises.map((e) => e.name)).toEqual(['Pull Ups', 'Curls']);
-    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['// shoulder felt tight']);
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['(shoulder felt tight)']);
     expect(page.exercises[0].sets).toHaveLength(2);
   });
 
@@ -164,15 +164,27 @@ describe('a comment typed into a cell', () => {
     expect(page.exercises[0].notes).toEqual([]);
   });
 
-  it('does not comment a line that is already a comment', () => {
-    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '// already noted']));
-    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['// already noted']);
+  it('does not bracket a line that is already a note', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '(already noted)']));
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['(already noted)']);
+  });
+
+  it('leaves a note written the old way exactly as it is', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '// written last year']));
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['// written last year']);
   });
 
   it('round trips, so the cell and the page never disagree', () => {
     const text = writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', '10', 'shoulder felt tight']);
-    const again = writeCell(text, 'Pull Ups', ['10', '10', '// shoulder felt tight']);
+    const again = writeCell(text, 'Pull Ups', ['10', '10', '(shoulder felt tight)']);
     expect(again).toBe(text);
+  });
+
+  // Prose with its own brackets in it still ends up one note, not a set.
+  it('handles a comment that already contains brackets', () => {
+    const page = parsePage(writeCell(PAGE_WITH_TWO, 'Pull Ups', ['10', 'tight (right side)']));
+    expect(page.exercises.map((e) => e.name)).toEqual(['Pull Ups', 'Curls']);
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['(tight (right side))']);
   });
 });
 

@@ -33,7 +33,9 @@ const SAVE_DELAY = 400;
 type LineKind = 'note' | 'set' | 'broken' | 'prose';
 
 function classifyLine(line: string): LineKind {
-  if (/^(?:\/\/|#)/.test(line)) return 'note';
+  // Brackets round the whole line, or the prefix pages used to be written
+  // with. Both read as a note; only the first is ever written.
+  if (/^\(.*\)$/.test(line) || /^(?:\/\/|#)/.test(line)) return 'note';
   const result = parseSetLine(line);
   if (result.ok) return 'set';
   return result.reason === null ? 'prose' : 'broken';
@@ -96,7 +98,7 @@ function noteHint(): HTMLElement {
   const hint = document.createElement('p');
   hint.className = 'note';
   hint.textContent = 'Put a comment in brackets after a set \u2014 135x10 (w/ bands) \u2014 and it stays with that set. '
-    + 'Start a whole line with // for a note about the exercise instead.';
+    + 'A whole line in brackets is a note about the exercise rather than a set.';
   return hint;
 }
 
@@ -123,7 +125,7 @@ function refreshNotice(notice: HTMLElement, table: HTMLElement): void {
         kind,
         fix: () => {
           const next = [...cell.value.split('\n')];
-          next[index] = line.replace(/^(\s*)/, '$1// ');
+          next[index] = line.replace(/^(\s*)(.*?)\s*$/, '$1($2)');
           cell.value = next.join('\n');
           cell.dispatchEvent(new Event('input'));
         },

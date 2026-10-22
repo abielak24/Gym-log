@@ -262,3 +262,70 @@ describe('a comment in brackets after a set', () => {
     expect(parseSetLine('45x10 w/ bands').ok).toBe(false);
   });
 });
+
+describe('decimal weights', () => {
+  it('takes a plate written with a half', () => {
+    expect(parseSetLine('47.5x12')).toEqual({ ok: true, columns: [{ weight: 47.5, reps: 12 }] });
+  });
+
+  // Microplates get written `.5` at least as often as `0.5`.
+  it('takes one written with no leading digit', () => {
+    expect(parseSetLine('.5x10')).toEqual({ ok: true, columns: [{ weight: 0.5, reps: 10 }] });
+  });
+
+  it('and one left with a trailing point', () => {
+    expect(parseSetLine('45.x10')).toEqual({ ok: true, columns: [{ weight: 45, reps: 10 }] });
+  });
+
+  it('keeps the decimal exactly, rather than to the nearest pound', () => {
+    const result = parseSetLine('2.25x30');
+    expect(result.ok && result.columns[0].weight).toBe(2.25);
+  });
+
+  it('works with a unit, a comment and a superset at once', () => {
+    expect(parseSetLine('22.5kg x 10 (left) | 22.5kg x 10 (right)')).toEqual({
+      ok: true,
+      columns: [
+        { weight: 22.5, reps: 10, note: 'left' },
+        { weight: 22.5, reps: 10, note: 'right' },
+      ],
+    });
+  });
+
+  // Half a rep is not a thing, and guessing one would be inventing a number.
+  it('still refuses a decimal rep', () => {
+    expect(parseSetLine('10x8.5').ok).toBe(false);
+  });
+});
+
+describe('a note is a whole line in brackets', () => {
+  it('is kept with the exercise and left out of the sets', () => {
+    const page = parsePage('Chest 9/22\nBench\n135x8\n(shoulder felt tight)', TODAY);
+    expect(page.exercises[0].sets).toHaveLength(1);
+    expect(page.exercises[0].notes.map((n) => n.text)).toEqual(['(shoulder felt tight)']);
+  });
+
+  it('does not become an exercise, so the sets under it stay put', () => {
+    const page = parsePage('Chest 9/22\nBench\n(warming up slowly)\n135x8\n135x6', TODAY);
+    expect(page.exercises.map((e) => e.name)).toEqual(['Bench']);
+    expect(page.exercises[0].sets).toHaveLength(2);
+  });
+
+  // Pages written before brackets must not turn into exercises.
+  it('still reads the old prefix, because old pages are full of it', () => {
+    const page = parsePage('Chest 9/22\nBench\n135x8\n// shoulder felt tight', TODAY);
+    expect(page.exercises.map((e) => e.name)).toEqual(['Bench']);
+    expect(page.exercises[0].notes).toHaveLength(1);
+  });
+
+  it('is not confused with a set that has a comment on it', () => {
+    const page = parsePage('Chest 9/22\nBench\n135x8 (felt heavy)', TODAY);
+    expect(page.exercises[0].sets).toHaveLength(1);
+    expect(page.exercises[0].notes).toHaveLength(0);
+  });
+
+  it('and unbracketed prose is still read as an exercise name', () => {
+    const page = parsePage('Chest 9/22\nBench\n135x8\nfelt weak today', TODAY);
+    expect(page.exercises.map((e) => e.name)).toEqual(['Bench', 'felt weak today']);
+  });
+});

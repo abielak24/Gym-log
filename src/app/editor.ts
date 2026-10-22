@@ -168,8 +168,9 @@ export function createEditor(sessionId: string, initialText: string): EditorHand
   function commentLine(index: number): void {
     const lines = textarea.value.split('\n');
     const current = lines[index] ?? '';
-    if (/^\s*(?:\/\/|#)/.test(current)) return;
-    lines[index] = current.replace(/^(\s*)/, '$1// ');
+    const body = current.trim();
+    if (!body || /^\(.*\)$/.test(body) || /^(?:\/\/|#)/.test(body)) return;
+    lines[index] = current.replace(/^(\s*)(.*?)\s*$/, '$1($2)');
     textarea.value = lines.join('\n');
     render();
     scheduleSave();

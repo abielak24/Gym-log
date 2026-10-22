@@ -152,6 +152,24 @@ async function crewApi(request, response, path) {
 
   /* Crews ---------------------------------------------------------------- */
 
+  const theirLog = /^\/api\/crew\/([^/]+)\/member\/([^/]+)\/log$/.exec(path);
+  if (theirLog && request.method === 'GET') {
+    const me = whoami();
+    if (!me) return send(401, { error: 'not signed in' });
+
+    const crew = crews.get(theirLog[1]);
+    if (!crew || crew.secret !== request.headers['x-crew-secret']) return send(404, { error: 'no such crew' });
+
+    const roster = members.get(theirLog[1]);
+    if (!roster?.has(me.id)) return send(403, { error: 'you are not on this board' });
+    if (!roster.has(theirLog[2])) return send(404, { error: 'no such member' });
+
+    const theirs = [...(log.get(theirLog[2]) ?? new Map()).values()].sort((a, b) => a.updatedAt - b.updatedAt);
+    return send(200, { now: Date.now(), more: false, cursor: Date.now(), records: theirs });
+  }
+
+
+
   if (request.method === 'POST' && path === '/api/crew') {
     const me = whoami();
     if (!me) return send(401, { error: 'not signed in' });
@@ -629,19 +647,19 @@ await page.waitForTimeout(500);
 check('the app tells you a sentence is not a set', (await page.locator('.cell-notice-head').textContent())?.includes('will not be read as a set'));
 check('and says what will happen to it', (await page.locator('.cell-notice .problem-why').first().textContent())?.includes('kept as a note'));
 check('the cell is marked, but not as an error', (await page.locator('.grid-cell-prose').count()) === 1);
-check('and the rule is written down where you are typing', (await page.locator('.note').last().textContent())?.includes('//'));
+check('and the rule is written down where you are typing', (await page.locator('.note').last().textContent())?.includes('brackets'));
 await page.screenshot({ path: join(SHOTS, '15-note-offer.png'), fullPage: true });
 
 await page.locator('.cell-notice .btn', { hasText: 'Make it a note' }).click();
 await page.waitForTimeout(500);
-check('one tap makes it a note', (await page.locator('.grid-cell-today').first().inputValue()).includes('// shoulder felt tight'));
+check('one tap makes it a note', (await page.locator('.grid-cell-today').first().inputValue()).includes('(shoulder felt tight)'));
 check('and the warning goes away', (await page.locator('.cell-notice-head').count()) === 0);
 check('with the cell no longer marked', (await page.locator('.grid-cell-prose').count()) === 0);
 
 await page.reload();
 await page.waitForSelector('.grid');
 const kept = await page.locator('.grid-cell-today').first().inputValue();
-check('the note survives a reload, in the cell', kept.includes('// shoulder felt tight'), kept.replace(/\n/g, '|'));
+check('the note survives a reload, in the cell', kept.includes('(shoulder felt tight)'), kept.replace(/\n/g, '|'));
 check('and did not become an exercise', (await page.locator('.grid-name').allTextContents()).includes('shoulder felt tight') === false);
 check('nor a flagged line', (await page.locator('.grid-cell-unreadable').count()) === 0);
 
@@ -651,7 +669,7 @@ const priorValue = await untouched.inputValue();
 await untouched.fill(`${priorValue}\nback was tight`);
 await untouched.blur();
 await page.waitForTimeout(500);
-check('leaving a cell settles a sentence into a note by itself', (await untouched.inputValue()).includes('// back was tight'));
+check('leaving a cell settles a sentence into a note by itself', (await untouched.inputValue()).includes('(back was tight)'));
 await page.reload();
 await page.waitForSelector('.grid');
 check('and it is not an exercise after a reload either', (await page.locator('.grid-name').allTextContents()).includes('back was tight') === false);
@@ -928,7 +946,8 @@ await mine.goto(url);
 await makeAccount(mine, 'alexlifts');
 await mine.goto(`${url}#/friends`);
 await mine.waitForSelector('.add-exercise');
-check('the tab explains what a crew is before anything is sent', (await mine.locator('.banner-nudge').textContent())?.includes('never leave this phone'));
+check('the tab says what a crew can see before anything is sent', (await mine.locator('.banner-nudge').textContent())?.includes('can read your log'));
+check('and that they cannot change it', (await mine.locator('.banner-nudge').textContent())?.includes('cannot change'));
 check('and warns that the link is the key', (await mine.locator('.banner-nudge').textContent())?.includes('Anyone holding the link'));
 await mine.screenshot({ path: join(SHOTS, '16-crew-start.png'), fullPage: true });
 
@@ -940,7 +959,7 @@ await mine.waitForSelector('.board-list');
 const invite = await mine.locator('.share-link').textContent();
 check('a crew produces a link to send', invite?.includes('#/join/'), invite ?? '');
 check('and I am on the board straight away', (await mine.locator('.board-name').textContent())?.includes('Alex'));
-check('with what I have actually done', (await mine.locator('.board-stats').first().textContent())?.includes('lift'));
+check('with a way into my own log from it', (await mine.locator('.board-open').first().getAttribute('href'))?.startsWith('#/friend/'));
 
 // --- The friend opens the link on their own phone ----------------------------------
 const theirsCtx = await phone();
@@ -989,32 +1008,54 @@ await mine.waitForTimeout(800);
 const names = await mine.locator('.board-name').allTextContents();
 check('my board shows my friend', names.some((n) => n.startsWith('Sam')), names.join(', '));
 check('and marks which row is mine', names.some((n) => n.includes('(you)')));
-const samRow = await mine.locator('.board-row', { hasText: 'Sam' }).locator('.board-stats').textContent();
-check('with their week on it', samRow?.includes('1 day this week'), samRow ?? '');
+const samRow = await mine.locator('.board-row', { hasText: 'Sam' }).locator('.board-when').textContent();
+check('saying when they last logged, not how they rank', samRow?.includes('last logged'), samRow ?? '');
+check('and no scoreboard figures against anybody', (await mine.locator('.board-stats').count()) === 0);
 
 await mine.goto(`${url}#/home`);
 await mine.waitForSelector('.split-list');
-check('but their workouts stay on their phone, not mine', (await mine.locator('.split-name').allTextContents()).includes('Legs') === false);
+check('their workouts are not mixed into my own splits', (await mine.locator('.split-name').allTextContents()).includes('Legs') === false);
 await mine.goto(`${url}#/friends`);
 await mine.waitForSelector('.board-list');
 await mine.screenshot({ path: join(SHOTS, '17-crew-board.png'), fullPage: true });
 
-// --- What is shared, and what is not --------------------------------------------------
-const posted = await theirs.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).lastPosted);
-check('a summary carries lifts and best sets', posted.includes('Squat') && posted.includes('245'));
-check('but no page text', posted.includes('Legs 9/') === false);
-check('and no session detail', posted.includes('225x5\n245x3') === false);
+// --- Reading their log, without being able to touch it ------------------------------------
+await mine.goto(`${url}#/friends`);
+await mine.waitForSelector('.board-list');
+await waitForRows(mine, 2);
+await mine.locator('.board-row', { hasText: 'Sam' }).locator('.board-open').click();
+await mine.waitForSelector('.history-list, .note', { timeout: 20000 });
+await mine.waitForFunction(() => document.querySelectorAll('.history-list li').length > 0, null, { timeout: 20000 })
+  .catch(() => {});
 
-// --- Holding one lift back ---------------------------------------------------------------
+check('a friend\u2019s row opens their log', (await mine.locator('.exercise-name').textContent())?.startsWith('Sam'));
+check('showing the workouts they wrote', (await mine.locator('.history-list li').count()) > 0);
+check('with the sets on them', (await mine.locator('.history-sets').first().textContent())?.includes('245x3'));
+check('and their splits', (await mine.locator('.split-name').allTextContents()).includes('Legs'));
+check('but nothing to type into', (await mine.locator('#view textarea').count()) === 0);
+await mine.screenshot({ path: join(SHOTS, '22-friend-log.png'), fullPage: true });
+
+await mine.locator('.split-link', { hasText: 'Legs' }).click();
+await mine.waitForSelector('.grid');
+check('their split opens as the same grid', (await mine.locator('.grid-name').count()) > 0);
+check('read only, with no column open', (await mine.locator('.grid-cell-today').count()) === 0);
+check('and the sets in it', (await mine.locator('.grid').textContent())?.includes('245x3'));
+await mine.screenshot({ path: join(SHOTS, '23-friend-grid.png'), fullPage: true });
+
+await mine.locator('.btn-ghost', { hasText: 'Their log' }).click();
+await mine.waitForSelector('.history-list');
+check('with a way back to the rest of their log', (await mine.locator('.split-name').count()) > 0);
+
+// Their log is theirs: reading it must not put it in my own splits.
+await mine.goto(`${url}#/home`);
+await mine.waitForSelector('.split-list');
+check('and reading it leaves my own log alone', (await mine.locator('.split-name').allTextContents()).includes('Legs') === false);
+
+// --- No switch that promises a privacy it cannot keep --------------------------------------
 await theirs.goto(`${url}#/exercise/squat`);
 await theirs.waitForSelector('.exercise-head');
-check('a lift can be held back from the crew', (await theirs.locator('.btn', { hasText: 'Shared with your crew' }).count()) === 1);
-await theirs.locator('.btn', { hasText: 'Shared with your crew' }).click();
-await theirs.waitForTimeout(4000);
-check('and says so once held back', (await theirs.locator('.btn', { hasText: 'Held back' }).count()) === 1);
-
-const afterHiding = await theirs.evaluate(() => JSON.parse(localStorage.getItem('gym-notebook:v1')).lastPosted);
-check('a held-back lift stops being sent', afterHiding.includes('Squat') === false, afterHiding.slice(0, 120));
+check('a lift cannot be held back now the whole log is readable',
+  (await theirs.locator('.btn', { hasText: 'your crew' }).count()) === 0);
 
 // --- Only whoever started the crew can remove anyone -------------------------------
 await theirs.goto(`${url}#/friends`);
@@ -1086,6 +1127,12 @@ await laptop.locator('input[aria-label="Your name on the board"]').fill('Sam');
 await laptop.locator('.btn-primary', { hasText: 'Join' }).click();
 await laptop.waitForSelector('.board-list');
 await waitForRows(laptop, 2);
+// The first fetch can land after the list is drawn, so give the second one
+// a chance before counting - this check has raced twice now.
+if ((await laptop.locator('.board-name').count()) !== 2) {
+  await laptop.locator('.btn', { hasText: 'Refresh' }).click();
+  await waitForRows(laptop, 2);
+}
 check('and updates that account\u2019s row rather than making a second', (await laptop.locator('.board-name').count()) === 2, (await laptop.locator('.board-name').allTextContents()).join(' | '));
 check('which it knows is its own', (await laptop.locator('.board-row', { hasText: '(you)' }).locator('.board-name').textContent())?.startsWith('Sam'));
 

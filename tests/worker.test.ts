@@ -606,6 +606,87 @@ describe('the log', () => {
   });
 });
 
+describe('reading somebody else\u2019s log', () => {
+  async function board() {
+    const alex = await signUp('alex');
+    const made = await call('POST', '/crew', { token: alex.token });
+    const { crewId, secret } = await made.json() as { crewId: string; secret: string };
+    const sam = await signUp('sam');
+
+    await call('PUT', `/crew/${crewId}/member`, { token: alex.token, secret, body: { ...SUMMARY, name: 'Alex' } });
+    await call('PUT', `/crew/${crewId}/member`, { token: sam.token, secret, body: { ...SUMMARY, name: 'Sam' } });
+    await call('PUT', '/log', {
+      token: sam.token,
+      body: { records: [{ kind: 'session', id: 'mon', updatedAt: 100, body: { text: '10/5 Legs\\nSquat\\n185x5' } }] },
+    });
+    return { crewId, secret, alex, sam };
+  }
+
+  function read(crewId: string, memberId: string, options: { token?: string; secret?: string } = {}) {
+    const headers: Record<string, string> = {};
+    if (options.token) headers['x-account-token'] = options.token;
+    if (options.secret) headers['x-crew-secret'] = options.secret;
+    return handle(new Request(`${API}/crew/${crewId}/member/${memberId}/log`, { headers }), deps);
+  }
+
+  it('lets somebody on the same board read it', async () => {
+    const { crewId, secret, alex, sam } = await board();
+    const response = await read(crewId, sam.accountId, { token: alex.token, secret });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { records: { id: string }[] };
+    expect(body.records.map((r) => r.id)).toEqual(['mon']);
+  });
+
+  it('refuses somebody not signed in', async () => {
+    const { crewId, secret, sam } = await board();
+    expect((await read(crewId, sam.accountId, { secret })).status).toBe(401);
+  });
+
+  // The link opens the board. Reading a log takes being on it.
+  it('refuses somebody holding the link but not on the board', async () => {
+    const { crewId, secret, sam } = await board();
+    const stranger = await signUp('stranger');
+    expect((await read(crewId, sam.accountId, { token: stranger.token, secret })).status).toBe(403);
+  });
+
+  it('refuses somebody on the board without the link', async () => {
+    const { crewId, alex, sam } = await board();
+    expect((await read(crewId, sam.accountId, { token: alex.token })).status).toBe(401);
+  });
+
+  it('refuses a member of another board entirely', async () => {
+    const { crewId, secret, sam } = await board();
+    const other = await signUp('other');
+    const made = await call('POST', '/crew', { token: other.token });
+    const theirs = await made.json() as { crewId: string; secret: string };
+    await call('PUT', `/crew/${theirs.crewId}/member`, {
+      token: other.token, secret: theirs.secret, body: { ...SUMMARY, name: 'Other' },
+    });
+
+    expect((await read(crewId, sam.accountId, { token: other.token, secret })).status).toBe(403);
+  });
+
+  it('and stops once they leave the board', async () => {
+    const { crewId, secret, alex, sam } = await board();
+    await call('DELETE', `/crew/${crewId}/member`, { token: sam.token, secret });
+
+    expect((await read(crewId, sam.accountId, { token: alex.token, secret })).status).toBe(404);
+  });
+
+  it('hands back a tombstone as a tombstone, so a deleted day stays deleted', async () => {
+    const { crewId, secret, alex, sam } = await board();
+    await call('PUT', '/log', {
+      token: sam.token,
+      body: { records: [{ kind: 'session', id: 'mon', updatedAt: 200, deleted: true }] },
+    });
+
+    const response = await read(crewId, sam.accountId, { token: alex.token, secret });
+    const body = await response.json() as { records: { deleted?: boolean }[] };
+    expect(body.records[0].deleted).toBe(true);
+  });
+});
+
 describe('the browser can actually send what the client sends', () => {
   // A header outside the simple set needs naming in the preflight, or the
   // browser refuses the request before the worker ever sees it.

@@ -146,6 +146,20 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   met nor missed, so the row said nothing. The goal is not validated, only
   read back as it is typed: an unreadable one is kept as written and simply
   measures nothing, which is the same bargain the parser makes.
+- **Brackets are the only comment syntax.** A whole line in them is a note;
+  after a set they comment that set. `//` is read and never written: pages
+  full of it predate this, and dropping it would turn every one of those
+  lines into an exercise with a day's sets hanging off it.
+- **The note marker is load-bearing.** A line with no digits is an exercise
+  name, so prose with no marker becomes an exercise and steals the sets below
+  it. That is why removing the construct meant replacing it rather than
+  deleting it.
+- **A crew reads your whole log, and can change none of it.** There is no
+  route that writes to another account, so read-only is structural rather
+  than a matter of which buttons are rendered. `GET /crew/:id/member/:id/log`
+  needs the crew secret *and* both accounts on that board.
+- **Not a leaderboard** — no rank, no totals, rows sorted by name. Anything
+  that turns the Friends tab back into a scoreboard is a regression.
 - **A set's comment rides on the set**, not the exercise. `185x8 (w/ bands)`
   is a different lift from `185x8`, so `heaviestSet` carries the note and the
   summary shows it. `//` is for something about the exercise instead.
@@ -279,7 +293,7 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
 | `Rows \| Cable Rows` | a superset: an exercise naming both sides |
 | `25x10 \| 20x10` | its sets, a column per side |
 | `135x10 (w/ bands)` | a set with a comment, kept on that set |
-| `// slept badly` | a note, ignored by history |
+| `(slept badly)` | a whole line in brackets: a note, ignored by history |
 
 `src/core/sample.ts` holds the demo history — five sessions of each split
 and a fortnight of the daily tracker — which loads on a fresh install and can

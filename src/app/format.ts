@@ -13,6 +13,13 @@ export function friendlyDate(iso: string, today = new Date()): string {
   return `${month}/${day}`;
 }
 
+/**
+ * A number with separators, keeping whatever decimals it really has.
+ *
+ * Rounding was fine while this only ever counted lifts, and wrong the moment
+ * it was handed a weight or a goal: 2.5 is a real plate and `3` is a lie
+ * about it.
+ */
 export function thousands(value: number): string {
-  return Math.round(value).toLocaleString('en-US');
+  return value.toLocaleString('en-US', { maximumFractionDigits: 3 });
 }

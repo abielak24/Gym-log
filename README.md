@@ -102,13 +102,13 @@ follows, written down:
 | `Chest/Tris 9/22` or `9/22 Chest/Tris` | the day's header — a name and a date |
 | `Dumbbell Incline Press` | an exercise; any line that isn't a set |
 | `95x7` | a set: 95 lb for 7 reps |
-| `47.5x12` | decimals are fine |
+| `47.5x12`, `.5x10` | decimals are fine, with or without the leading digit |
 | `10` | a set at bodyweight: 10 reps |
 | `50x10` under `Dips` | whatever you wrote — added weight, assistance, your call |
 | `Rows \| Cable Rows` | a superset: an exercise naming both sides |
 | `25x10 \| 20x10` | its sets: a column per side, split by the same pipe |
 | `135x10 (w/ bands)` | a set with a comment attached to that set |
-| `// slept badly` | a note, ignored by history |
+| `(slept badly)` | a whole line in brackets: a note, ignored by history |
 | `@ Steps 7.5k/10k` | a daily tracker row — only ever written by the export |
 
 Spaces around the `x` don't matter, and `X` works too. The page title is what
@@ -138,20 +138,24 @@ the comment stops them counting. Your best set shows its comment too, because
 `185x8 (w/ bands)` is not the same lift as `185x8`. Without the brackets,
 `45x10 w/ bands` is flagged rather than guessed at.
 
-**You can also write things that aren't sets at all.** Start a line with `//`
-and it is kept with that exercise and left out of your history:
+**You can also write things that aren't sets at all.** Put the whole line in
+brackets — the same brackets — and it is kept with that exercise and left out
+of your history:
 
 ```
 95x7
 95x6
-// shoulder felt tight, stopped early
+(shoulder felt tight, stopped early)
 ```
 
-Inside a grid cell you don't have to remember the `//`. The cell already
+Inside a grid cell you don't have to remember the brackets. The cell already
 says which exercise you mean, so a sentence typed there is kept as a note on
 it — the app says so while you type, and settles it when you move on. On the
 text page there is no such context, so a line with no numbers really is read
-as a new exercise; that is what the `//` is for.
+as a new exercise; that is what the brackets are for.
+
+Pages written before this still say `// like that`, and are still read that
+way. Nothing needs converting.
 
 **It tells you when it didn't understand.** A line it can't read gets a red
 wave under it and stays exactly as you typed it — nothing is ever silently
@@ -225,14 +229,26 @@ lift, which is worse.
 ## Training with friends
 
 The **Friends** tab is a crew: a link you send, which gives whoever opens it
-this app with their own empty log *and* a place on your board. The link is
-what opens the board, like a shared document; your account is what says which
-row on it is yours.
+this app with their own log *and* a place alongside yours. The link is what
+opens the board, like a shared document; your account is what says which row
+on it is yours.
 
-What leaves your phone is a summary: a name you choose, how often you
-trained, this week's daily goals, and each lift with its best set. Your
-pages, notes and sessions stay on the device. Hold a lift back from its own
-page, pause sharing entirely, or leave the crew and your row is deleted.
+**It is not a leaderboard.** There is no rank, no totals to beat, nothing
+sorted by who did most. It is a list of people, and tapping one opens their
+log — their splits in the same grid you use for your own, and the workouts
+they wrote with the sets and comments on them. You can read all of it and
+change none of it; there is no route on the server that writes to somebody
+else's log, so this is not a matter of the buttons being hidden.
+
+**What a crew can see is your log.** Not a summary of it — the pages, the
+sets, the comments beside them. That is the point of the tab, and it is said
+plainly before anyone joins.
+
+It is all or nothing on purpose. There used to be a switch to hold one lift
+back, and it stopped being true the moment a crew could read the page that
+lift is written on; a switch that promises a privacy it cannot deliver is
+worse than no switch. **Pause sharing** stops your log being sent at all, and
+leaving the crew deletes your row.
 
 **Your account is who you are on every board**, so a link that has been
 forwarded, re-sent or opened twice can't put you on one a second time. Open

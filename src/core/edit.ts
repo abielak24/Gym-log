@@ -17,7 +17,8 @@ import { headingKey } from './normalize';
  * right when reading a page top to bottom, and wrong inside a grid cell,
  * where the exercise is already known and `shoulder felt tight` would
  * silently become an exercise of its own and steal the sets below it. Such a
- * line is kept as a note on that exercise instead.
+ * line is kept as a note on that exercise instead, by putting brackets
+ * round it - the same brackets that comment a set.
  *
  * This is not the parser guessing at meaning: the cell says which exercise
  * the line belongs to. A half-written set like `95x` is left exactly as
@@ -26,11 +27,12 @@ import { headingKey } from './normalize';
 export function asCellLines(lines: string[]): string[] {
   return lines.map((raw) => {
     const line = raw.trim();
-    if (!line || /^(?:\/\/|#)/.test(line)) return line;
+    // Already a note, in brackets or in the old prefix.
+    if (!line || /^\(.*\)$/.test(line) || /^(?:\/\/|#)/.test(line)) return line;
 
     const result = parseSetLine(line);
     if (result.ok) return line;
-    return result.reason === null ? `// ${line}` : line;
+    return result.reason === null ? `(${line})` : line;
   });
 }
 

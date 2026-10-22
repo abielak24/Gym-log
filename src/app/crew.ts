@@ -6,6 +6,7 @@
  * last good copy so the tab still says something useful on a train.
  */
 
+import type { Session } from '../core/types';
 import { buildSummary, type MemberSummary } from '../core/summary';
 import { accountHeaders } from './auth';
 import * as store from './store';
@@ -225,6 +226,55 @@ export async function peekBoard(
     if (error instanceof ApiError && error.status === 404) return 'gone';
     return 'failed';
   }
+}
+
+/**
+ * Somebody else's log, as records.
+ *
+ * Read-only by construction: there is no route that writes to another
+ * account, so nothing a viewer does here can reach the person's phone.
+ */
+export async function fetchMemberLog(memberId: string): Promise<Session[] | 'failed'> {
+  const crew = store.crew();
+  if (!crew || !isConfigured()) return 'failed';
+
+  const sessions = new Map<string, Session>();
+  const gone = new Set<string>();
+  let cursor = 0;
+
+  try {
+    for (let page = 0; page < 50; page += 1) {
+      const response = await send(
+        `/crew/${encodeURIComponent(crew.id)}/member/${encodeURIComponent(memberId)}/log?since=${cursor}`,
+        { headers: identity(crew) },
+      );
+      const body = await response.json() as {
+        records: Array<{ kind: string; id: string; updatedAt: number; deleted?: boolean; body?: unknown }>;
+        cursor: number;
+        more: boolean;
+      };
+
+      for (const record of body.records) {
+        if (record.kind !== 'session') continue;
+        if (record.deleted) {
+          gone.add(record.id);
+          sessions.delete(record.id);
+          continue;
+        }
+        // A tombstone may arrive before the write it buries on a later page.
+        if (gone.has(record.id)) continue;
+        const session = record.body as Session;
+        sessions.set(record.id, { ...session, id: record.id, updatedAt: record.updatedAt, sample: undefined });
+      }
+
+      cursor = body.cursor;
+      if (!body.more) break;
+    }
+  } catch {
+    return 'failed';
+  }
+
+  return [...sessions.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
 export async function leaveCrew(): Promise<void> {

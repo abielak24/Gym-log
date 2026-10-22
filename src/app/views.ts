@@ -70,20 +70,10 @@ export function renderExercise(root: HTMLElement, key: string): void {
   head.append(heading, star);
   root.append(head);
 
-  // Only worth showing once there is somebody it could be shared with.
-  if (store.crew()) {
-    const hidden = store.isHiddenFromCrew(key);
-    const share = document.createElement('button');
-    share.type = 'button';
-    share.className = hidden ? 'btn btn-ghost btn-danger' : 'btn btn-ghost';
-    share.textContent = hidden ? 'Held back from your crew' : 'Shared with your crew';
-    share.setAttribute('aria-pressed', String(!hidden));
-    share.addEventListener('click', () => {
-      store.toggleHiddenFromCrew(key);
-      renderExercise(root, key);
-    });
-    root.append(share);
-  }
+  // There used to be a "held back from your crew" toggle here. It stopped
+  // being true the moment a crew could read the page the lift is written on,
+  // and a switch that claims a privacy it cannot deliver is worse than no
+  // switch. Sharing is the whole log or none of it: pause it, or leave.
 
   if (entries.length === 0) {
     root.append(message('Nothing logged for this one.'));

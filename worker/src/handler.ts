@@ -62,6 +62,12 @@ export async function handle(request: Request, deps: Deps): Promise<Response> {
     if (request.method === 'GET' && path === '/me') return await whoAmI(request, deps);
 
     if (request.method === 'GET' && path === '/log') return await pullLog(request, deps, url);
+
+    const theirLog = /^\/crew\/([A-Za-z0-9_-]{1,64})\/member\/([A-Za-z0-9_-]{1,64})\/log$/.exec(path);
+    if (theirLog && request.method === 'GET') {
+      return await pullMemberLog(request, deps, url, theirLog[1], theirLog[2]);
+    }
+
     if (request.method === 'PUT' && path === '/log') return await pushLog(request, deps);
 
     if (request.method === 'POST' && path === '/crew') return await createCrew(request, deps);
@@ -277,11 +283,41 @@ async function countAttempt(deps: Deps, handleKey: string): Promise<void> {
 async function pullLog(request: Request, deps: Deps, url: URL): Promise<Response> {
   const account = await requireAccount(request, deps);
   if (account instanceof Response) return account;
+  return await pageOfLog(deps, account.id, url);
+}
 
+/**
+ * Somebody else's log, because they are on a board with you.
+ *
+ * Being in a crew together is the whole of the permission: the link got you
+ * the board, the board is the people, and the people are their logs. There
+ * is nothing finer-grained, which the app says before anyone joins.
+ */
+async function pullMemberLog(
+  request: Request, deps: Deps, url: URL, crewId: string, memberId: string,
+): Promise<Response> {
+  const account = await requireAccount(request, deps);
+  if (account instanceof Response) return account;
+
+  const crew = await openCrew(request, deps, crewId);
+  if (crew instanceof Response) return crew;
+
+  // Both sides have to be on this board: holding the link is not enough to
+  // read a log, and a member who has left takes their log with them.
+  const mine = await deps.store.getMember(crewId, account.id);
+  if (!mine) return json({ error: 'you are not on this board' }, 403);
+
+  const theirs = await deps.store.getMember(crewId, memberId);
+  if (!theirs) return json({ error: 'no such member' }, 404);
+
+  return await pageOfLog(deps, memberId, url);
+}
+
+async function pageOfLog(deps: Deps, accountId: string, url: URL): Promise<Response> {
   const since = Number(url.searchParams.get('since') ?? 0);
   if (!Number.isFinite(since) || since < 0) return json({ error: 'since must be a number' }, 400);
 
-  const records = await deps.store.logSince(account.id, since, LOG_PAGE + 1);
+  const records = await deps.store.logSince(accountId, since, LOG_PAGE + 1);
   const more = records.length > LOG_PAGE;
   const page = more ? records.slice(0, LOG_PAGE) : records;
 

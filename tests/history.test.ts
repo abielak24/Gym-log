@@ -143,3 +143,16 @@ describe('the heaviest set', () => {
     expect(best?.note).toBeUndefined();
   });
 });
+
+describe('the heaviest set', () => {
+  it('carries its comment, since a set with bands is not the same lift', () => {
+    const sessions = [{
+      id: 's1',
+      date: '2025-10-05',
+      updatedAt: 1,
+      text: '10/5 Legs\nSquat\n185x8 (w/ bands)\n135x10',
+    }];
+    const best = heaviestSet(buildHistory(sessions).byExercise.get(normalizeName('Squat')) ?? []);
+    expect(best).toMatchObject({ weight: 185, reps: 8, note: 'w/ bands' });
+  });
+});

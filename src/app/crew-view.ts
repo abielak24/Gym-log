@@ -6,9 +6,9 @@
  * question, and it should not be able to shout over the first one.
  */
 
-import { friendlyDate, thousands } from './format';
+import { friendlyDate } from './format';
 import {
-  createCrew, fetchBoard, isConfigured, joinCrew, joinLink, leaveCrew, mySummary,
+  createCrew, fetchBoard, isConfigured, joinCrew, joinLink, leaveCrew,
   peekBoard, postSummary, removeMember, rotateLink,
   type BoardMember,
 } from './crew';
@@ -56,7 +56,7 @@ function startOrJoin(root: HTMLElement): HTMLElement {
 
   wrap.append(note(
     'A crew is a link you send to friends. Opening it puts them on the board with you, '
-    + 'under whatever account they sign in with.',
+    + 'and from then on you can each read the other\u2019s log \u2014 read, not change.',
   ));
   wrap.append(privacyNote());
 
@@ -118,9 +118,9 @@ function privacyNote(): HTMLElement {
   box.className = 'banner banner-nudge';
 
   const text = document.createElement('span');
-  text.textContent = 'Joining sends a summary of your training to a server: your name, how often you trained, '
-    + 'and each lift with its best set. Your pages, notes and sessions never leave this phone. '
-    + 'Anyone holding the link can see the board.';
+  text.textContent = 'Everyone on this board can read your log: the pages you write, the sets on them '
+    + 'and the comments beside them. They cannot change any of it. You see theirs the same way. '
+    + 'Anyone holding the link can see who is on the board and join it.';
   box.append(text);
   return box;
 }
@@ -205,7 +205,8 @@ function board(root: HTMLElement): HTMLElement {
       return;
     }
 
-    for (const member of [...cached.members].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    // By name. Sorting by recency made the list a running order.
+    for (const member of [...cached.members].sort((a, b) => a.name.localeCompare(b.name))) {
       list.append(memberRow(member, member.memberId === store.account()?.id, root, drawList));
     }
     when.textContent = `As of ${new Date(cached.fetchedAt).toLocaleString()}`;
@@ -252,6 +253,13 @@ function linkChanged(root: HTMLElement): HTMLElement {
   return wrap;
 }
 
+/**
+ * One person, and a way into their log.
+ *
+ * Deliberately not a scoreboard row: no rank, no totals to be beaten, and
+ * nothing sorted by who did most. What the row offers is the thing a
+ * training partner actually wants, which is to go and look at what they did.
+ */
 function memberRow(member: BoardMember, isMe: boolean, root: HTMLElement, redraw: () => void): HTMLLIElement {
   const row = document.createElement('li');
   row.className = 'board-row';
@@ -259,25 +267,20 @@ function memberRow(member: BoardMember, isMe: boolean, root: HTMLElement, redraw
   const days = Math.round((Date.now() - member.updatedAt) / 86400000);
   if (days >= STALE_DAYS) row.classList.add('board-quiet');
 
+  const open = document.createElement('a');
+  open.className = 'board-open';
+  open.href = `#/friend/${encodeURIComponent(member.memberId)}`;
+
   const name = document.createElement('span');
   name.className = 'board-name';
   name.textContent = isMe ? `${member.name} (you)` : member.name;
 
   const when = document.createElement('span');
   when.className = 'board-when';
-  when.textContent = days >= STALE_DAYS ? `quiet for ${days} days` : `updated ${relative(member.updatedAt)}`;
+  when.textContent = days >= STALE_DAYS ? `quiet for ${days} days` : `last logged ${relative(member.updatedAt)}`;
 
-  const stats = document.createElement('span');
-  stats.className = 'board-stats';
-  const summary = member.summary;
-  stats.textContent = summary
-    ? `${summary.daysTrained7} day${summary.daysTrained7 === 1 ? '' : 's'} this week`
-      + ` · ${summary.daysTrained30} in 30`
-      + (summary.goalsTracked7 > 0 ? ` · ${summary.goalsMet7}/${summary.goalsTracked7} goals` : '')
-      + ` · ${thousands(summary.lifts.length)} lift${summary.lifts.length === 1 ? '' : 's'}`
-    : 'nothing posted yet';
-
-  row.append(name, when, stats);
+  open.append(name, when);
+  row.append(open);
 
   // Only whoever started the crew sees this, and never against their own row.
   if (!isMe && store.isCrewAdmin()) row.append(removeControl(member, root, redraw));
@@ -430,12 +433,11 @@ function settings(root: HTMLElement): HTMLElement {
   title.textContent = 'What you are sharing';
   box.append(title);
 
-  const summary = mySummary();
-  const hidden = store.hiddenFromCrew().length;
+  const sessions = store.sessions().filter((session) => !session.sample).length;
   box.append(note(
-    `${summary.lifts.length} lift${summary.lifts.length === 1 ? '' : 's'}, how often you trained, and this week's daily goals.`
-    + (hidden ? ` ${hidden} lift${hidden === 1 ? '' : 's'} held back.` : '')
-    + ' Hold a lift back from its own page, or from Key lifts on Home.',
+    `Your whole log: ${sessions} workout${sessions === 1 ? '' : 's'}, their sets and the comments beside them. `
+    + 'Everyone on this board can read it and none of them can change it. '
+    + 'There is no way to share part of it \u2014 pause sharing, or leave.',
   ));
 
   const actions = document.createElement('div');

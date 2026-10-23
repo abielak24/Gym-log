@@ -7,7 +7,7 @@
  * and has to be written down.
  */
 
-import { foldCode, logIn, recover, remember, signUp, type Identity } from './auth';
+import { expiredNotice, foldCode, logIn, recover, remember, signUp, type Identity } from './auth';
 import { isConfigured } from './crew';
 import { toast } from './panels';
 import * as store from './store';
@@ -57,6 +57,18 @@ export function renderAuth(root: HTMLElement): void {
   if (!isConfigured()) {
     root.append(note('Accounts are not set up on this copy of the app, so there is nothing to sign in to yet.'));
     return;
+  }
+
+  // Said once, before anything else, so an unasked-for sign-in screen is not
+  // mistaken for the app losing the log.
+  if (expiredNotice()) {
+    const bar = document.createElement('div');
+    bar.className = 'banner banner-warn';
+    const text = document.createElement('span');
+    text.textContent = 'You were signed out, so your log stopped syncing. '
+      + 'Sign in again and it will catch up. Nothing on this phone was lost.';
+    bar.append(text);
+    root.append(bar);
   }
 
   const wrap = document.createElement('div');

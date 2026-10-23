@@ -345,6 +345,20 @@ export function updateAccount(patch: Partial<Account>): void {
  * there is no server copy yet - so erasing it here would be deleting the
  * only copy. `clearEverything()` is the deliberate way to do that.
  */
+/**
+ * The server has stopped recognising this device's session.
+ *
+ * Unlike signing out, the crew is kept: the same person almost always signs
+ * straight back in, and making them hunt down the join link again for the
+ * server's sake would be punishing them for it. The log is untouched either
+ * way — it is on this phone, and signing out is not erasing.
+ */
+export function expireAccount(): void {
+  state = { ...state, account: null, lastPosted: '' };
+  persist();
+  emit();
+}
+
 export function clearAccount(): void {
   state = { ...state, account: null, crew: null, board: null, lastPosted: '' };
   persist();

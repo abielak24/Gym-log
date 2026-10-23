@@ -1090,6 +1090,11 @@ const outsiderCtx = await phone();
 const outsider = await outsiderCtx.newPage();
 await outsider.goto(url);
 await makeAccount(outsider, 'outsider');
+// Let the sign-up's own sync finish first: it persists the whole state, and
+// would write `crew: null` straight back over the line below. Wait on the
+// account panel, which Home always has, rather than on splits.
+await outsider.waitForSelector('.account-box', { timeout: 30000 });
+await outsider.waitForTimeout(2500);
 await outsider.evaluate((crew) => {
   const key = 'gym-notebook:v1';
   const state = JSON.parse(localStorage.getItem(key));
@@ -1340,7 +1345,51 @@ check('and unregisters the worker holding it', cleared[1] === 'yes');
 check('and comes back to a working app', (await broken.locator('#view h1').textContent()) !== 'The app did not start');
 await brokenCtx.close();
 
+// --- A session the server no longer knows ---------------------------------------------------
+// This is what a crew mate hit: a dead token, every sync rejected in silence,
+// and the app still behaving as though it were signed in.
+const deadCtx = await phone();
+const deadPage = await deadCtx.newPage();
+await deadPage.goto(url);
+await makeAccount(deadPage, 'staletoken');
+await deadPage.waitForSelector('.split-list');
+
+await deadPage.evaluate(() => {
+  const key = 'gym-notebook:v1';
+  const state = JSON.parse(localStorage.getItem(key));
+  state.account.token = 'a-token-the-server-never-issued';
+  localStorage.setItem(key, JSON.stringify(state));
+});
+await deadPage.reload();
+
+// The sync that runs on startup is where the refusal lands, so this needs no
+// prodding: the app finds out before it has finished drawing the log.
+await deadPage.waitForSelector('.auth-form', { timeout: 30000 });
+
+check('a token the server rejects ends the session, rather than failing in silence',
+  (await deadPage.locator('.auth-form').count()) === 1);
+check('without waiting to be prodded into noticing', (await deadPage.locator('.split-list').count()) === 0);
+check('and says why the sign in screen appeared',
+  (await deadPage.locator('.banner-warn').textContent())?.includes('stopped syncing'));
+check('and promises the log on this phone is still there',
+  (await deadPage.locator('.banner-warn').textContent())?.includes('Nothing on this phone was lost'));
+
+await signInAs(deadPage, 'staletoken');
+await deadPage.waitForSelector('.split-list', { timeout: 30000 });
+check('signing in again gets straight back to the log', (await deadPage.locator('.split-name').count()) > 0);
+check('with the explanation gone', (await deadPage.locator('.banner-warn').count()) === 0);
+await deadCtx.close();
+
 // --- The recovery code -------------------------------------------------------------------
+// On its own account, not the one the rest of the suite is signed in on:
+// recovering signs out every other device holding that account, which would
+// quietly pull the floor out from under every check after this one.
+const ownerCtx = await phone();
+const owner = await ownerCtx.newPage();
+await owner.goto(url);
+const ownerCode = await makeAccount(owner, 'recoverme');
+await owner.waitForSelector('.account-box', { timeout: 30000 });
+
 const lostCtx = await phone();
 const lost = await lostCtx.newPage();
 await lost.goto(url);
@@ -1349,14 +1398,14 @@ await lost.locator('.btn-ghost', { hasText: 'I already have an account' }).click
 await lost.locator('.btn-ghost', { hasText: 'I have lost my password' }).click();
 check('a lost password has a way back', (await lost.locator('.exercise-name').textContent()) === 'Use your recovery code');
 
-await lost.locator('input[aria-label="Handle"]').fill('alex');
-await lost.locator('input[aria-label="Recovery code"]').fill(recoveryCode ?? '');
+await lost.locator('input[aria-label="Handle"]').fill('recoverme');
+await lost.locator('input[aria-label="Recovery code"]').fill(ownerCode ?? '');
 await lost.locator('input[aria-label="Password"]').fill('new1');
 await lost.locator('input[aria-label="Password again"]').fill('new1');
 await lost.locator('.btn-primary', { hasText: 'Set a new password' }).click();
 await lost.waitForSelector('.recovery-code', { timeout: 30000 });
 const nextCode = (await lost.locator('.recovery-code').textContent())?.trim();
-check('and using it hands over a fresh code', Boolean(nextCode) && nextCode !== recoveryCode);
+check('and using it hands over a fresh code', Boolean(nextCode) && nextCode !== ownerCode);
 check('which stays put rather than being redrawn away', (await lost.locator('.recovery-code').count()) === 1);
 
 await lost.locator('.confirm-saved input').check();
@@ -1368,10 +1417,19 @@ check('on a phone that starts with nothing of its own', (await lost.locator('.se
 const staleCtx = await phone();
 const stale = await staleCtx.newPage();
 await stale.goto(url);
-await signInAs(stale, 'alex');
+await signInAs(stale, 'recoverme');
 await stale.waitForSelector('.toast', { timeout: 30000 });
 check('and the old password stops working', (await stale.locator('.toast').textContent())?.includes('do not match'));
 await staleCtx.close();
+
+// Recovering an account is often done because a phone is gone, so the phone
+// that was signed in has to find out rather than syncing into a void.
+await owner.reload();
+await owner.waitForSelector('.auth-form', { timeout: 30000 });
+check('and the device that was signed in is signed out', (await owner.locator('.auth-form').count()) === 1);
+check('and told why, rather than just losing its place',
+  (await owner.locator('.banner-warn').textContent())?.includes('stopped syncing'));
+await ownerCtx.close();
 await lostCtx.close();
 await laptopCtx.close();
 

@@ -15,6 +15,7 @@ import { buildGrid, type GridCell } from '../core/grid';
 import { buildTemplates } from '../core/templates';
 import { parsePage } from '../core/parse';
 import type { Session, Template } from '../core/types';
+import { sessionExpired } from './auth';
 import { fetchMemberLog, type MemberLogProblem } from './crew';
 import { friendlyDate } from './format';
 import * as store from './store';
@@ -82,6 +83,12 @@ async function withLog(
 
   loading.remove();
   if (!Array.isArray(result)) {
+    // A dead token found here ends the session, exactly as one found by a
+    // sync does. This was the screen that first reported one.
+    if (result === 'signed-out') {
+      sessionExpired();
+      return;
+    }
     root.append(problem(result, root, memberId, draw));
     return;
   }

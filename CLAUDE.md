@@ -158,6 +158,17 @@ not in `MemberSummary`, it cannot leave the device, and that is the point.
   route that writes to another account, so read-only is structural rather
   than a matter of which buttons are rendered. `GET /crew/:id/member/:id/log`
   needs the crew secret *and* both accounts on that board.
+- **A rejected token ends the session.** Returning 'signed-out' and carrying
+  on left the app believing it was signed in while every sync was refused in
+  silence; the first sign of it was a crew mate unable to read a log that had
+  not been uploaded for days. `sessionExpired()` drops the account, keeps the
+  crew and the log, and says why on the sign-in screen. The notice is cleared
+  when somebody signs in, not when it is read — the screen renders more than
+  once on the way in, and clearing on read left the second render bare.
+- **Recovering an account signs out its other devices**, which is deliberate
+  and now visible: they land on the sign-in screen with the reason. Anything
+  in the suite that recovers must use an account of its own, or it pulls the
+  floor out from under every check that follows.
 - **A failure to read a log says which failure it was.** `fetchMemberLog`
   returns a typed reason — refused, no longer a member, stale link, signed
   out, server not redeployed, or genuinely offline — because the first

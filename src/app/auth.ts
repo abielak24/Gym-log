@@ -111,6 +111,7 @@ async function saltFor(handle: string): Promise<string> {
  * of it before it could be written down.
  */
 export function remember(identity: Identity): void {
+  clearExpiredNotice();
   store.setAccount({
     id: identity.accountId,
     handle: identity.handle,
@@ -181,6 +182,57 @@ export async function logOut(): Promise<void> {
     }
   }
   store.clearAccount();
+}
+
+/** Where the reason for an unasked-for sign-in screen waits. */
+const EXPIRED = 'gym-notebook:session-expired';
+
+/**
+ * The session this device was holding is no longer good.
+ *
+ * Returning 'signed-out' and carrying on was the bug: the app went on
+ * believing it was signed in, every sync was rejected in silence, and the
+ * first sign of it was a crew mate unable to read a log that had not
+ * actually been uploaded for days. A rejected token has to end the session
+ * here, loudly enough to be noticed and acted on.
+ */
+export function sessionExpired(): void {
+  if (!store.account()) return;
+
+  try {
+    sessionStorage.setItem(EXPIRED, 'yes');
+  } catch {
+    // The screen still appears; it just will not say why.
+  }
+
+  store.expireAccount();
+  location.hash = '#/home';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+/**
+ * Whether to explain why the sign-in screen turned up uninvited.
+ *
+ * Read without clearing, because the screen renders more than once on the
+ * way in — the store emits as the session is dropped, and the route runs
+ * after it. Clearing on the first read meant whichever render came second
+ * showed a bare sign-in form with no explanation at all. It is cleared when
+ * somebody actually signs in, which is the moment it stops being true.
+ */
+export function expiredNotice(): boolean {
+  try {
+    return sessionStorage.getItem(EXPIRED) === 'yes';
+  } catch {
+    return false;
+  }
+}
+
+function clearExpiredNotice(): void {
+  try {
+    sessionStorage.removeItem(EXPIRED);
+  } catch {
+    // Nothing to clear if it could not be stored in the first place.
+  }
 }
 
 export function signedIn(): boolean {

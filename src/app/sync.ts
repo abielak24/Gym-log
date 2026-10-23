@@ -11,7 +11,7 @@
  */
 
 import { adopt, collect, merge, pruneTombstones, type SyncRecord } from '../core/sync';
-import { accountHeaders } from './auth';
+import { accountHeaders, sessionExpired } from './auth';
 import { apiBase, ApiError, isConfigured } from './crew';
 import * as store from './store';
 
@@ -120,9 +120,13 @@ export async function syncNow(): Promise<SyncResult> {
     store.markSynced(cursor, account.id);
     return announce(sent || took ? 'synced' : 'unchanged');
   } catch (error) {
-    // A token this device is holding has stopped working - recovered from
-    // elsewhere, most likely. Nothing to do here but stop pretending.
-    if (error instanceof ApiError && error.status === 401) return announce('signed-out');
+    // A token this device is holding has stopped working: recovered from
+    // elsewhere, or a server that no longer has the session. Carrying on as
+    // though signed in meant every push after this was thrown away quietly.
+    if (error instanceof ApiError && error.status === 401) {
+      sessionExpired();
+      return announce('signed-out');
+    }
     return announce('offline');
   } finally {
     running = false;
